@@ -1,0 +1,13 @@
+
+.env
+backend/.env
+*.db
+*.sqlite3
+.venv/
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+app/build/
+app/.dart_tool/
+app/.flutter-plugins*
