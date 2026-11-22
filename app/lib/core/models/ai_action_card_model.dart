@@ -1,11 +1,13 @@
 import 'task_model.dart';
 import 'free_slot_model.dart';
+import 'extracted_task_draft_model.dart';
 
 enum AiCardType {
   taskCreated,
   conflictAlert,
   freeSlots,
   deleteConfirm,
+  batchTasksPreview,
 }
 
 class AiActionCardModel {
@@ -13,6 +15,7 @@ class AiActionCardModel {
   final TaskModel? task;
   final TaskModel? conflictingTask;
   final List<FreeSlotModel> freeSlots;
+  final List<ExtractedTaskDraftModel> extractedTasks;
   final String? message;
   final bool isExecuted;
   final bool isUndone;
@@ -22,6 +25,7 @@ class AiActionCardModel {
     this.task,
     this.conflictingTask,
     this.freeSlots = const [],
+    this.extractedTasks = const [],
     this.message,
     this.isExecuted = false,
     this.isUndone = false,
@@ -32,6 +36,7 @@ class AiActionCardModel {
     TaskModel? task,
     TaskModel? conflictingTask,
     List<FreeSlotModel>? freeSlots,
+    List<ExtractedTaskDraftModel>? extractedTasks,
     String? message,
     bool? isExecuted,
     bool? isUndone,
@@ -41,6 +46,7 @@ class AiActionCardModel {
       task: task ?? this.task,
       conflictingTask: conflictingTask ?? this.conflictingTask,
       freeSlots: freeSlots ?? this.freeSlots,
+      extractedTasks: extractedTasks ?? this.extractedTasks,
       message: message ?? this.message,
       isExecuted: isExecuted ?? this.isExecuted,
       isUndone: isUndone ?? this.isUndone,
@@ -53,6 +59,7 @@ class AiActionCardModel {
       'task': task?.toJson(),
       'conflictingTask': conflictingTask?.toJson(),
       'freeSlots': freeSlots.map((s) => s.toJson()).toList(),
+      'extractedTasks': extractedTasks.map((t) => t.toJson()).toList(),
       'message': message,
       'isExecuted': isExecuted,
       'isUndone': isUndone,
@@ -73,6 +80,10 @@ class AiActionCardModel {
           : null,
       freeSlots: (json['freeSlots'] as List<dynamic>?)
               ?.map((e) => FreeSlotModel.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      extractedTasks: (json['extractedTasks'] as List<dynamic>?)
+              ?.map((e) => ExtractedTaskDraftModel.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
       message: json['message'] as String?,

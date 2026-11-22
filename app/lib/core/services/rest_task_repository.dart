@@ -7,6 +7,7 @@ import '../models/task_model.dart';
 import '../models/free_slot_model.dart';
 import '../models/chat_message_model.dart';
 import '../models/user_settings_model.dart';
+import '../models/extracted_task_draft_model.dart';
 import 'task_repository.dart';
 import 'api_client.dart';
 
@@ -235,6 +236,71 @@ class RestTaskRepository implements TaskRepository {
             : 'Voice assistant failed',
         statusCode: e.response?.statusCode,
       );
+    }
+  }
+
+  Future<({String reply, List<ExtractedTaskDraftModel> tasks})> extractTasksFromFile({
+    required List<int> fileBytes,
+    required String fileName,
+    String? instruction,
+    String? timezone,
+  }) async {
+    try {
+      final map = <String, dynamic>{
+        'file': MultipartFile.fromBytes(
+          fileBytes,
+          filename: fileName,
+        ),
+      };
+      if (instruction != null && instruction.trim().isNotEmpty) {
+        map['instruction'] = instruction.trim();
+      }
+      if (timezone != null && timezone.trim().isNotEmpty) {
+        map['timezone'] = timezone.trim();
+      }
+      final formData = FormData.fromMap(map);
+
+      final response = await _dio.post(
+        '/tasks/extract-from-file',
+        data: formData,
+        options: Options(
+          receiveTimeout: const Duration(seconds: 90),
+          sendTimeout: const Duration(seconds: 60),
+        ),
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final reply = data['reply'] as String? ?? '';
+      final rawList = data['extractedTasks'] as List<dynamic>? ?? [];
+      final tasks = rawList
+          .map((item) => ExtractedTaskDraftModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      return (reply: reply, tasks: tasks);
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['detail']?.toString() ?? 'Failed to extract tasks from file')
+          : (e.message ?? 'Failed to extract tasks from file');
+      throw ApiException(message: msg, statusCode: e.response?.statusCode);
+    }
+  }
+
+  Future<List<TaskModel>> createBatchTasks(List<ExtractedTaskDraftModel> drafts) async {
+    try {
+      final body = {
+        'tasks': drafts.map((d) => d.toTaskCreateJson()).toList(),
+      };
+      final response = await _dio.post('/tasks/batch', data: body);
+      final data = response.data as Map<String, dynamic>;
+      final rawTasks = data['tasks'] as List<dynamic>? ?? [];
+      return rawTasks
+          .map((t) => TaskModel.fromJson(t as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['detail']?.toString() ?? 'Failed to create tasks in batch')
+          : (e.message ?? 'Failed to create tasks in batch');
+      throw ApiException(message: msg, statusCode: e.response?.statusCode);
     }
   }
 

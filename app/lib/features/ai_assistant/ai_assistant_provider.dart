@@ -3,10 +3,13 @@ import 'package:uuid/uuid.dart';
 import '../../core/l10n/locale_provider.dart';
 import '../../core/models/chat_message_model.dart';
 import '../../core/models/free_slot_model.dart';
+import '../../core/models/ai_action_card_model.dart';
+import '../../core/models/extracted_task_draft_model.dart';
 import '../../core/services/audio_recorder_service.dart';
 import '../../core/services/rest_task_repository.dart';
 import '../../core/services/notification_service.dart';
 import '../auth/auth_provider.dart';
+import '../settings/settings_provider.dart';
 import '../tasks/tasks_provider.dart';
 
 final audioRecorderServiceProvider = Provider<AudioRecorderService>((ref) {
@@ -237,6 +240,96 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
     }
   }
 
+  Future<void> sendFileScheduleExtraction({
+    required List<int> fileBytes,
+    required String fileName,
+    String? prompt,
+  }) async {
+    final currentLocale = ref.read(localeProvider).languageCode;
+    final isArabic = currentLocale == 'ar';
+
+    final userPromptText = (prompt != null && prompt.trim().isNotEmpty)
+        ? prompt.trim()
+        : (isArabic
+            ? 'استخراج جدول المواعيد من الملف المرفق'
+            : 'Extract schedule from the attached file');
+
+    final userMsg = ChatMessageModel(
+      id: _uuid.v4(),
+      sender: MessageSender.user,
+      text: userPromptText,
+      timestamp: DateTime.now(),
+      attachmentName: fileName,
+      attachmentSizeBytes: fileBytes.length,
+    );
+
+    state = state.copyWith(
+      messages: [...state.messages, userMsg],
+      isThinking: true,
+    );
+
+    final authState = ref.read(authProvider).value;
+    if (authState == null || !authState.isAuthenticated) {
+      final errText = isArabic
+          ? 'يُرجى تسجيل الدخول أولاً لتتمكن من إرفاق الملفات واستخراج الجداول.'
+          : 'Please sign in first to attach files and extract schedules.';
+      final errMessage = ChatMessageModel(
+        id: _uuid.v4(),
+        sender: MessageSender.assistant,
+        text: errText,
+        timestamp: DateTime.now(),
+      );
+      state = state.copyWith(
+        messages: [...state.messages, errMessage],
+        isThinking: false,
+      );
+      return;
+    }
+
+    try {
+      final repo = ref.read(restTaskRepositoryProvider);
+      final tz = ref.read(settingsProvider).timezone;
+      final result = await repo.extractTasksFromFile(
+        fileBytes: fileBytes,
+        fileName: fileName,
+        instruction: prompt,
+        timezone: tz,
+      );
+
+      final assistantMsg = ChatMessageModel(
+        id: _uuid.v4(),
+        sender: MessageSender.assistant,
+        text: result.reply,
+        timestamp: DateTime.now(),
+        actionCard: result.tasks.isNotEmpty
+            ? AiActionCardModel(
+                type: AiCardType.batchTasksPreview,
+                extractedTasks: result.tasks,
+              )
+            : null,
+      );
+
+      state = state.copyWith(
+        messages: [...state.messages, assistantMsg],
+        isThinking: false,
+      );
+    } catch (e) {
+      final errText = isArabic
+          ? 'حدث خطأ أثناء استخراج المواعيد من الملف. يُرجى التحقق من الملف والمحاولة مرة أخرى.'
+          : 'An error occurred while extracting schedule from file. Please verify the file and try again.';
+      final errMessage = ChatMessageModel(
+        id: _uuid.v4(),
+        sender: MessageSender.assistant,
+        text: errText,
+        timestamp: DateTime.now(),
+      );
+      state = state.copyWith(
+        messages: [...state.messages, errMessage],
+        isThinking: false,
+      );
+    }
+  }
+
   Future<void> undoCreatedTask(String messageId) async {
     final list = List<ChatMessageModel>.from(state.messages);
     final index = list.indexWhere((m) => m.id == messageId);
@@ -311,6 +404,31 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
       );
       state = state.copyWith(messages: list);
     }
+  }
+
+  Future<void> confirmBatchTasks(
+    String messageId,
+    List<ExtractedTaskDraftModel> selectedDrafts,
+  ) async {
+    final list = List<ChatMessageModel>.from(state.messages);
+    final index = list.indexWhere((m) => m.id == messageId);
+    if (index == -1) return;
+
+    final repo = ref.read(restTaskRepositoryProvider);
+    await repo.createBatchTasks(selectedDrafts);
+
+    final card = list[index].actionCard;
+    if (card != null) {
+      list[index] = list[index].copyWith(
+        actionCard: card.copyWith(isExecuted: true),
+      );
+      state = state.copyWith(messages: list);
+    }
+
+    // Refresh tasks and notifications
+    await ref.read(tasksProvider.notifier).refresh();
+    final currentTasks = ref.read(tasksProvider).value ?? [];
+    await ref.read(notificationServiceProvider).scheduleTaskReminders(currentTasks);
   }
 }
 

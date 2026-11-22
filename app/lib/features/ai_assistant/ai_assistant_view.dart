@@ -126,6 +126,11 @@ class _AiAssistantViewState extends ConsumerState<AiAssistantView> {
                   onSelectSlot: (slot) {
                     ref.read(aiAssistantProvider.notifier).resolveConflict(message.id, selectedSlot: slot);
                   },
+                  onConfirmBatch: (messageId, selectedDrafts) async {
+                    await ref
+                        .read(aiAssistantProvider.notifier)
+                        .confirmBatchTasks(messageId, selectedDrafts);
+                  },
                 );
               },
             ),
@@ -147,6 +152,13 @@ class _AiAssistantViewState extends ConsumerState<AiAssistantView> {
             },
             onSendAudio: (recording) {
               ref.read(aiAssistantProvider.notifier).sendVoiceRecording(recording);
+            },
+            onSendFile: (bytes, fileName, prompt) {
+              ref.read(aiAssistantProvider.notifier).sendFileScheduleExtraction(
+                    fileBytes: bytes,
+                    fileName: fileName,
+                    prompt: prompt,
+                  );
             },
             onSendVoice: (duration) {
               final isArabic = l10n.isArabic;

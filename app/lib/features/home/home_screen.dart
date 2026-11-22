@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
+import '../../core/services/notification_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../core/utils/responsive_layout.dart';
@@ -16,19 +17,32 @@ import 'widgets/mobile_bottom_nav.dart';
 import 'widgets/quick_voice_fab.dart';
 import 'widgets/web_desktop_split_view.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(notificationServiceProvider).requestPermissions();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return ResponsiveLayout.builder(
       context: context,
-      mobile: _buildMobileScaffold(context, ref),
+      mobile: _buildMobileScaffold(context),
       desktop: const WebDesktopSplitView(),
     );
   }
 
-  Widget _buildMobileScaffold(BuildContext context, WidgetRef ref) {
+  Widget _buildMobileScaffold(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;

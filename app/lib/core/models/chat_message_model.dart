@@ -9,6 +9,8 @@ class ChatMessageModel {
   final DateTime timestamp;
   final bool isVoice;
   final int? audioDurationSeconds;
+  final String? attachmentName;
+  final int? attachmentSizeBytes;
   final AiActionCardModel? actionCard;
 
   const ChatMessageModel({
@@ -18,6 +20,8 @@ class ChatMessageModel {
     required this.timestamp,
     this.isVoice = false,
     this.audioDurationSeconds,
+    this.attachmentName,
+    this.attachmentSizeBytes,
     this.actionCard,
   });
 
@@ -28,6 +32,8 @@ class ChatMessageModel {
     DateTime? timestamp,
     bool? isVoice,
     int? audioDurationSeconds,
+    String? attachmentName,
+    int? attachmentSizeBytes,
     AiActionCardModel? actionCard,
   }) {
     return ChatMessageModel(
@@ -37,6 +43,8 @@ class ChatMessageModel {
       timestamp: timestamp ?? this.timestamp,
       isVoice: isVoice ?? this.isVoice,
       audioDurationSeconds: audioDurationSeconds ?? this.audioDurationSeconds,
+      attachmentName: attachmentName ?? this.attachmentName,
+      attachmentSizeBytes: attachmentSizeBytes ?? this.attachmentSizeBytes,
       actionCard: actionCard ?? this.actionCard,
     );
   }
@@ -49,6 +57,8 @@ class ChatMessageModel {
       'timestamp': timestamp.toUtc().toIso8601String(),
       'isVoice': isVoice,
       'audioDurationSeconds': audioDurationSeconds,
+      'attachmentName': attachmentName,
+      'attachmentSizeBytes': attachmentSizeBytes,
       'actionCard': actionCard?.toJson(),
     };
   }
@@ -76,6 +86,8 @@ class ChatMessageModel {
       timestamp: _parseUtcToLocal(json['timestamp']),
       isVoice: json['isVoice'] as bool? ?? false,
       audioDurationSeconds: json['audioDurationSeconds'] as int?,
+      attachmentName: json['attachmentName'] as String?,
+      attachmentSizeBytes: json['attachmentSizeBytes'] as int?,
       actionCard: json['actionCard'] != null
           ? AiActionCardModel.fromJson(json['actionCard'] as Map<String, dynamic>)
           : null,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/l10n/app_localizations.dart';
@@ -10,6 +11,7 @@ class VoiceRecorderInput extends StatefulWidget {
   final Function(String text) onSendText;
   final Function(int durationSeconds) onSendVoice;
   final Function(AudioRecordingResult recording)? onSendAudio;
+  final Function(List<int> bytes, String fileName, String? prompt)? onSendFile;
   final AudioRecorderService recorderService;
 
   const VoiceRecorderInput({
@@ -17,6 +19,7 @@ class VoiceRecorderInput extends StatefulWidget {
     required this.onSendText,
     required this.onSendVoice,
     this.onSendAudio,
+    this.onSendFile,
     required this.recorderService,
   });
 
@@ -24,9 +27,22 @@ class VoiceRecorderInput extends StatefulWidget {
   State<VoiceRecorderInput> createState() => _VoiceRecorderInputState();
 }
 
+class _AttachedFileInfo {
+  final String name;
+  final int size;
+  final List<int> bytes;
+
+  const _AttachedFileInfo({
+    required this.name,
+    required this.size,
+    required this.bytes,
+  });
+}
+
 class _VoiceRecorderInputState extends State<VoiceRecorderInput>
     with SingleTickerProviderStateMixin {
   final TextEditingController _textController = TextEditingController();
+  _AttachedFileInfo? _attachedFile;
   bool _isRecording = false;
   int _seconds = 0;
   Timer? _timer;
@@ -134,8 +150,68 @@ class _VoiceRecorderInputState extends State<VoiceRecorderInput>
     }
   }
 
+  Future<void> _pickAttachment() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+      );
+      if (files.isEmpty) return;
+
+      final file = files.first;
+      final fileSize = (await file.length()) ?? 0;
+      if (fileSize > 5 * 1024 * 1024) {
+        if (mounted) {
+          final l10n = AppLocalizations.of(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(l10n.strings.fileTooLargeError),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not read file data'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _attachedFile = _AttachedFileInfo(
+          name: file.name,
+          size: fileSize,
+          bytes: bytes,
+        );
+      });
+    } catch (e) {
+      debugPrint('File picker error: $e');
+    }
+  }
+
   void _sendTextMessage() {
     final text = _textController.text.trim();
+    if (_attachedFile != null) {
+      final file = _attachedFile!;
+      setState(() {
+        _attachedFile = null;
+      });
+      _textController.clear();
+      if (widget.onSendFile != null) {
+        widget.onSendFile!(file.bytes, file.name, text.isEmpty ? null : text);
+        return;
+      }
+    }
+
     if (text.isEmpty) return;
     _textController.clear();
     widget.onSendText(text);
@@ -145,6 +221,12 @@ class _VoiceRecorderInputState extends State<VoiceRecorderInput>
     final mins = (totalSeconds ~/ 60).toString().padLeft(2, '0');
     final secs = (totalSeconds % 60).toString().padLeft(2, '0');
     return '$mins:$secs';
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   @override
@@ -256,69 +338,150 @@ class _VoiceRecorderInputState extends State<VoiceRecorderInput>
     );
   }
 
+  Widget _buildAttachmentPreview(BuildContext context, ThemeData theme, bool isDark) {
+    final file = _attachedFile!;
+    final isPdf = file.name.toLowerCase().endsWith('.pdf');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.primary.withAlpha(isDark ? 80 : 50),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isPdf ? LucideIcons.fileText : LucideIcons.image,
+            size: 16,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              file.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '(${_formatFileSize(file.size)})',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+              fontSize: 10,
+            ),
+          ),
+          const SizedBox(width: 6),
+          InkWell(
+            onTap: () => setState(() => _attachedFile = null),
+            borderRadius: BorderRadius.circular(10),
+            child: const Padding(
+              padding: EdgeInsets.all(2),
+              child: Icon(LucideIcons.x, size: 14, color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTextInputBar(
     BuildContext context,
     AppLocalizations l10n,
     ThemeData theme,
     bool isDark,
   ) {
-    return Row(
-      key: const ValueKey('text_bar'),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Voice record trigger button
-        Container(
-          margin: const EdgeInsetsDirectional.only(end: 8),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withAlpha(isDark ? 35 : 20),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            tooltip: l10n.strings.micTapToRecord,
-            icon: const Icon(LucideIcons.mic, color: AppColors.primary, size: 20),
-            onPressed: _startRecording,
-          ),
-        ),
-
-        // Text input field
-        Expanded(
-          child: TextField(
-            controller: _textController,
-            textInputAction: TextInputAction.send,
-            onSubmitted: (_) => _sendTextMessage(),
-            decoration: InputDecoration(
-              hintText: l10n.strings.aiTypingHint,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide(
-                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                ),
+        if (_attachedFile != null)
+          _buildAttachmentPreview(context, theme, isDark),
+        Row(
+          key: const ValueKey('text_bar'),
+          children: [
+            // Attachment (Paperclip) button
+            Container(
+              margin: const EdgeInsetsDirectional.only(end: 6),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated,
+                shape: BoxShape.circle,
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide(
-                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+              child: IconButton(
+                tooltip: l10n.strings.attachFileTooltip,
+                icon: const Icon(LucideIcons.paperclip, color: AppColors.primary, size: 18),
+                onPressed: _pickAttachment,
               ),
             ),
-          ),
-        ),
-        const SizedBox(width: 8),
 
-        // Send Text button
-        Container(
-          decoration: const BoxDecoration(
-            color: AppColors.primary,
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: const Icon(LucideIcons.send, color: Colors.white, size: 16),
-            onPressed: _sendTextMessage,
-          ),
+            // Voice record trigger button
+            Container(
+              margin: const EdgeInsetsDirectional.only(end: 8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(isDark ? 35 : 20),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                tooltip: l10n.strings.micTapToRecord,
+                icon: const Icon(LucideIcons.mic, color: AppColors.primary, size: 18),
+                onPressed: _startRecording,
+              ),
+            ),
+
+            // Text input field
+            Expanded(
+              child: TextField(
+                controller: _textController,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _sendTextMessage(),
+                decoration: InputDecoration(
+                  hintText: _attachedFile != null
+                      ? (l10n.isArabic
+                          ? 'أضف تعليمات إضافية أو اضغط إرسال...'
+                          : 'Add optional prompt or tap send...')
+                      : l10n.strings.aiTypingHint,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide(
+                      color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide(
+                      color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // Send Text button
+            Container(
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(LucideIcons.send, color: Colors.white, size: 16),
+                onPressed: _sendTextMessage,
+              ),
+            ),
+          ],
         ),
       ],
     );

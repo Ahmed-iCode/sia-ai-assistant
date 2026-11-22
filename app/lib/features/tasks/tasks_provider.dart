@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/task_model.dart';
+import '../../core/services/notification_service.dart';
 import '../../core/services/task_repository.dart';
 import '../../core/services/rest_task_repository.dart';
 import '../auth/auth_provider.dart';
@@ -86,7 +87,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskModel>> {
       return const [];
     }
     final repo = ref.watch(taskRepositoryProvider);
-    return await repo.getTasks();
+    final tasks = await repo.getTasks();
+    ref.read(notificationServiceProvider).syncAllTaskReminders(tasks);
+    return tasks;
   }
 
   Future<void> refresh() async {
@@ -98,7 +101,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskModel>> {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       final repo = ref.read(taskRepositoryProvider);
-      return await repo.getTasks();
+      final tasks = await repo.getTasks();
+      ref.read(notificationServiceProvider).syncAllTaskReminders(tasks);
+      return tasks;
     });
   }
 
@@ -116,6 +121,12 @@ class TasksNotifier extends AsyncNotifier<List<TaskModel>> {
     updatedList[index] = updatedTask;
     state = AsyncValue.data(updatedList);
 
+    if (updatedTask.isCompleted || updatedTask.isCancelled) {
+      ref.read(notificationServiceProvider).cancelTaskReminder(id);
+    } else {
+      ref.read(notificationServiceProvider).scheduleTaskReminder(updatedTask);
+    }
+
     final repo = ref.read(taskRepositoryProvider);
     await repo.updateTask(updatedTask);
   }
@@ -127,6 +138,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskModel>> {
         : await repo.createTask(task);
     final currentTasks = state.value ?? [];
     state = AsyncValue.data([...currentTasks, created]);
+    ref.read(notificationServiceProvider).scheduleTaskReminder(created);
     return created;
   }
 
@@ -140,10 +152,16 @@ class TasksNotifier extends AsyncNotifier<List<TaskModel>> {
       updatedList[index] = updated;
       state = AsyncValue.data(updatedList);
     }
+    if (updated.isCompleted || updated.isCancelled) {
+      ref.read(notificationServiceProvider).cancelTaskReminder(updated.id);
+    } else {
+      ref.read(notificationServiceProvider).scheduleTaskReminder(updated);
+    }
     return updated;
   }
 
   Future<void> deleteTask(String id) async {
+    ref.read(notificationServiceProvider).cancelTaskReminder(id);
     final currentTasks = state.value ?? [];
     state = AsyncValue.data(currentTasks.where((t) => t.id != id).toList());
     final repo = ref.read(taskRepositoryProvider);

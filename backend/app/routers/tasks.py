@@ -1,6 +1,7 @@
+import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -8,12 +9,31 @@ from app.core.security import get_current_user
 from app.db.database import get_db
 from app.db.models import Task, User
 from app.schemas.common import TaskStatus, TaskPriority
-from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, ConflictDetail
+from app.schemas.task import (
+    TaskCreate,
+    TaskUpdate,
+    TaskResponse,
+    ConflictDetail,
+    FileExtractionResponse,
+    BatchTaskCreate,
+    BatchTaskResponse,
+)
 from app.schemas.free_slot import FreeSlotResponse
 from app.services.schedule_service import ScheduleService
 from app.services.reminder_service import ReminderService
+from app.ai.file_extractor import extract_schedule_from_file
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
+
+ALLOWED_EXTRACT_MIMES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+}
+MAX_EXTRACT_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 @router.get("", response_model=List[TaskResponse])
@@ -142,6 +162,122 @@ def get_free_slots(
         end_date=e_date,
         min_duration_minutes=min_duration_minutes,
     )
+
+
+@router.post("/extract-from-file", response_model=FileExtractionResponse)
+async def extract_tasks_from_file(
+    file: UploadFile = File(...),
+    instruction: Optional[str] = Form(None),
+    timezone: str = Form("Africa/Cairo"),
+    current_user: User = Depends(get_current_user),
+):
+    raw_mime = (file.content_type or "").lower().split(";")[0].strip()
+    content_type = raw_mime
+    if content_type not in ALLOWED_EXTRACT_MIMES:
+        fname = (file.filename or "").lower()
+        if fname.endswith(".pdf"):
+            content_type = "application/pdf"
+        elif fname.endswith(".jpg") or fname.endswith(".jpeg"):
+            content_type = "image/jpeg"
+        elif fname.endswith(".png"):
+            content_type = "image/png"
+        elif fname.endswith(".webp"):
+            content_type = "image/webp"
+
+    if content_type not in ALLOWED_EXTRACT_MIMES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="نوع الملف غير مدعوم. الأنواع المدعومة: JPG, PNG, WEBP, PDF / Unsupported file type. Allowed: JPG, PNG, WEBP, PDF",
+        )
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_EXTRACT_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="حجم الملف كبير جداً. الحد الأقصى المسموح به هو 5 ميجابايت / File is too large. Maximum size is 5 MB",
+        )
+    if len(file_bytes) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="الملف فارغ / The uploaded file is empty",
+        )
+
+    try:
+        extraction_res = extract_schedule_from_file(
+            file_bytes=file_bytes,
+            mime_type=content_type,
+            user=current_user,
+            instruction=instruction,
+            timezone_name=timezone or current_user.timezone or "Africa/Cairo",
+        )
+        return extraction_res
+    except Exception as e:
+        logger.error(f"Error in extract_tasks_from_file: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"حدث خطأ أثناء تحليل المستند: {str(e)} / Failed to extract tasks from file: {str(e)}",
+        )
+
+
+@router.post("/batch", response_model=BatchTaskResponse, status_code=status.HTTP_201_CREATED)
+def create_batch_tasks(
+    batch_in: BatchTaskCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not batch_in.tasks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="قائمة المهام فارغة / Tasks list cannot be empty",
+        )
+    if len(batch_in.tasks) > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="الحد الأقصى للإضافة دفعة واحدة هو 50 مهمة / Maximum 50 tasks allowed per batch",
+        )
+
+    created_tasks: List[Task] = []
+    try:
+        for task_in in batch_in.tasks:
+            task = Task(
+                user_id=current_user.id,
+                title=task_in.title,
+                description=task_in.description,
+                start_time=task_in.start_time,
+                end_time=task_in.end_time,
+                priority=task_in.priority.value,
+                status=task_in.status.value,
+                is_voice_created=task_in.is_voice_created,
+                tags=task_in.tags,
+            )
+            db.add(task)
+            db.flush()
+
+            offset = (
+                task_in.remind_before_minutes
+                if task_in.remind_before_minutes is not None
+                else current_user.default_reminder_offset_minutes
+            )
+            if offset and offset > 0:
+                ReminderService.sync_task_reminder(db=db, task=task, offset_minutes=offset)
+
+            created_tasks.append(task)
+
+        db.commit()
+        for t in created_tasks:
+            db.refresh(t)
+
+        return BatchTaskResponse(
+            created_count=len(created_tasks),
+            tasks=[TaskResponse.model_validate(t) for t in created_tasks],
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save batch tasks: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"فشل حفظ مجموعة المهام: {str(e)} / Failed to save batch tasks: {str(e)}",
+        )
 
 
 @router.get("/{task_id}", response_model=TaskResponse)

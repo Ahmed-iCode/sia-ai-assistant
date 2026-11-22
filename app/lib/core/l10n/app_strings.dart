@@ -94,6 +94,11 @@ class AppStrings {
   final String cardDeleteConfirmDesc;
   final String cardConfirmDelete;
   final String cardCancel;
+  final String cardBatchTasksTitle;
+  final String cardBatchConfirm;
+  final String cardBatchSuccess;
+  final String attachFileTooltip;
+  final String fileTooLargeError;
   final String actionCompletedNotification;
   final String actionUndoneNotification;
 
@@ -240,6 +245,11 @@ class AppStrings {
     required this.cardDeleteConfirmDesc,
     required this.cardConfirmDelete,
     required this.cardCancel,
+    required this.cardBatchTasksTitle,
+    required this.cardBatchConfirm,
+    required this.cardBatchSuccess,
+    required this.attachFileTooltip,
+    required this.fileTooLargeError,
     required this.actionCompletedNotification,
     required this.actionUndoneNotification,
     required this.settingsTitle,
@@ -381,6 +391,11 @@ class AppStrings {
     cardDeleteConfirmDesc: 'هل أنت متأكد من رغبتك في حذف هذه المهمة نهائياً؟',
     cardConfirmDelete: 'نعم، حذف',
     cardCancel: 'إلغاء',
+    cardBatchTasksTitle: 'المواعيد المستخرجة',
+    cardBatchConfirm: 'تأكيد وإضافة المهام',
+    cardBatchSuccess: 'تمت إضافة المهام بنجاح ✓',
+    attachFileTooltip: 'إرفاق صورة أو PDF للجدول',
+    fileTooLargeError: 'حجم الملف يتجاوز 5 ميجابايت',
     actionCompletedNotification: 'تم تنفيذ الإجراء بنجاح',
     actionUndoneNotification: 'تم التراجع عن الإجراء',
     settingsTitle: 'الإعدادات والتفضيلات',
@@ -522,6 +537,11 @@ class AppStrings {
     cardDeleteConfirmDesc: 'Are you sure you want to permanently delete this task?',
     cardConfirmDelete: 'Yes, Delete',
     cardCancel: 'Cancel',
+    cardBatchTasksTitle: 'Extracted Schedule',
+    cardBatchConfirm: 'Confirm & Add Tasks',
+    cardBatchSuccess: 'Tasks successfully added ✓',
+    attachFileTooltip: 'Attach schedule image or PDF',
+    fileTooLargeError: 'File exceeds maximum size of 5 MB',
     actionCompletedNotification: 'Action completed successfully',
     actionUndoneNotification: 'Action undone',
     settingsTitle: 'Settings & Preferences',

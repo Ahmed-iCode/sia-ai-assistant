@@ -1,12 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
+import '../../core/services/notification_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_provider.dart';
 import '../auth/auth_provider.dart';
 import '../auth/login_screen.dart';
+import '../tasks/tasks_provider.dart';
 import 'settings_provider.dart';
 import 'widgets/settings_section.dart';
 
@@ -249,12 +252,150 @@ class SettingsScreen extends ConsumerWidget {
                 secondary: const Icon(LucideIcons.bellRing, size: 20),
                 title: Text(l10n.strings.notificationsLabel),
                 value: settings.notificationsEnabled,
-                onChanged: (val) {
+                onChanged: (val) async {
                   ref.read(settingsProvider.notifier).toggleNotifications(val);
+                  if (val && !kIsWeb) {
+                    await ref.read(notificationServiceProvider).requestPermissions();
+                    final tasks = ref.read(tasksProvider).value ?? [];
+                    await ref.read(notificationServiceProvider).syncAllTaskReminders(tasks);
+                  }
                 },
               ),
             ],
           ),
+
+          // Diagnostic Section: Mobile Notifications & Reminders
+          if (!kIsWeb) ...[
+            const SizedBox(height: 16),
+            SettingsSection(
+              title: l10n.isArabic
+                  ? 'إشعارات وتذكيرات الموبايل'
+                  : 'Mobile Notification Diagnostics',
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            LucideIcons.shieldCheck,
+                            size: 18,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              l10n.isArabic
+                                  ? 'فحص واختبار التنبيهات المجدولة'
+                                  : 'Diagnose & Test Scheduled Alarms',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.isArabic
+                            ? 'اختبر وصول التنبيهات على جهازك للتأكد من عمل منبه النظام والإشعارات في الخلفية.'
+                            : 'Test notification delivery on your device to ensure system alarms work while the app is closed.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          // Button 1: Test Now
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(LucideIcons.bell, size: 16),
+                              label: Text(
+                                l10n.isArabic ? 'إشعار فوري' : 'Test Now',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              onPressed: () async {
+                                final success = await ref
+                                    .read(notificationServiceProvider)
+                                    .showImmediateTestNotification();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        success
+                                            ? (l10n.isArabic
+                                                ? 'تم إرسال إشعار تجريبي فوري بنجاح! تفقد شريط الإشعارات.'
+                                                : 'Immediate test notification sent! Check your notification bar.')
+                                            : (l10n.isArabic
+                                                ? 'تعذر إرسال الإشعار، يُرجى التأكد من صلاحيات الإشعارات.'
+                                                : 'Could not send notification. Please check notification permissions.'),
+                                      ),
+                                      duration: const Duration(seconds: 4),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+
+                          // Button 2: Test in 10s
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(LucideIcons.timer, size: 16),
+                              label: Text(
+                                l10n.isArabic ? 'تذكير بعد 10ث' : 'Test in 10s',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              onPressed: () async {
+                                final success = await ref
+                                    .read(notificationServiceProvider)
+                                    .scheduleDelayed10sTestNotification();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        success
+                                            ? (l10n.isArabic
+                                                ? '⏰ تم جدولة التنبيه بعد 10 ثواني! اقفل الشاشة أو صغّر التطبيق للتأكد من رنينه.'
+                                                : '⏰ Alarm scheduled for 10 seconds! Lock your screen or minimize the app to verify.')
+                                            : (l10n.isArabic
+                                                ? 'تعذر جدولة التنبيه، يُرجى التأكد من صلاحيات المنبه الدقيق.'
+                                                : 'Could not schedule alarm. Please grant exact alarm permission.'),
+                                      ),
+                                      duration: const Duration(seconds: 6),
+                                      backgroundColor: AppColors.primary,
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
 
           // Section 3: Account & Session

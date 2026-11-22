@@ -6,12 +6,14 @@ import '../../../core/l10n/app_localizations.dart';
 import '../../../core/models/ai_action_card_model.dart';
 import '../../../core/models/chat_message_model.dart';
 import '../../../core/models/free_slot_model.dart';
+import '../../../core/models/extracted_task_draft_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/date_formatter.dart';
 import 'conflict_alert_card.dart';
 import 'delete_confirm_card.dart';
 import 'free_slots_card.dart';
 import 'task_created_card.dart';
+import 'batch_task_preview_card.dart';
 
 class ChatBubble extends StatelessWidget {
   final ChatMessageModel message;
@@ -19,6 +21,7 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback onConfirmDelete;
   final VoidCallback onCancelDelete;
   final Function(FreeSlotModel slot)? onSelectSlot;
+  final Future<void> Function(String messageId, List<ExtractedTaskDraftModel> selectedDrafts)? onConfirmBatch;
 
   const ChatBubble({
     super.key,
@@ -27,6 +30,7 @@ class ChatBubble extends StatelessWidget {
     required this.onConfirmDelete,
     required this.onCancelDelete,
     this.onSelectSlot,
+    this.onConfirmBatch,
   });
 
   @override
@@ -101,6 +105,45 @@ class ChatBubble extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
+                      // Attachment indicator if file message
+                      if (message.attachmentName != null) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(isUser ? 40 : 25),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                message.attachmentName!.toLowerCase().endsWith('.pdf')
+                                    ? LucideIcons.fileText
+                                    : LucideIcons.image,
+                                size: 14,
+                                color: isUser ? Colors.white : AppColors.primary,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  message.attachmentName!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isUser
+                                        ? Colors.white
+                                        : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
                       // Voice indicator if audio message
                       if (message.isVoice) ...[
                         Row(
@@ -248,6 +291,16 @@ class ChatBubble extends StatelessWidget {
           isExecuted: actionCard.isExecuted,
           onConfirm: onConfirmDelete,
           onCancel: onCancelDelete,
+        );
+      case AiCardType.batchTasksPreview:
+        return BatchTaskPreviewCard(
+          tasks: actionCard.extractedTasks,
+          isExecuted: actionCard.isExecuted,
+          onConfirm: (selectedDrafts) async {
+            if (onConfirmBatch != null) {
+              await onConfirmBatch!(message.id, selectedDrafts);
+            }
+          },
         );
     }
   }

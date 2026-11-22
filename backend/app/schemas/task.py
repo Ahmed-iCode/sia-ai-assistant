@@ -58,3 +58,29 @@ class ConflictDetail(CamelModel):
     proposed_task: TaskCreate
     alternative_free_slots: List[FreeSlotResponse]
     message: str
+
+
+class ExtractedTaskDraft(CamelModel):
+    id: Optional[str] = None
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    priority: TaskPriority = TaskPriority.medium
+    category: Optional[str] = None
+    reminder_minutes: Optional[int] = 15
+
+
+class FileExtractionResponse(CamelModel):
+    reply: str
+    extracted_tasks: List[ExtractedTaskDraft]
+
+
+class BatchTaskCreate(CamelModel):
+    tasks: List[TaskCreate] = Field(..., min_length=1, max_length=50)
+
+
+class BatchTaskResponse(CamelModel):
+    created_count: int
+    tasks: List[TaskResponse]
+
