@@ -70,6 +70,12 @@ class RestTaskRepository implements TaskRepository {
             task.reminders.isNotEmpty ? task.reminders.first.offsetMinutes : 30,
         'isVoiceCreated': task.isVoiceCreated,
         'tags': task.tags,
+        'recurrenceType': task.recurrenceType,
+        'recurrenceDays': task.recurrenceDays,
+        'recurrenceEndDate': task.recurrenceEndDate?.toUtc().toIso8601String(),
+        'recurrenceCount': task.recurrenceCount,
+        'recurrenceGroupId': task.recurrenceGroupId,
+        'isRecurrenceActive': task.isRecurrenceActive,
         'force': force,
       };
 
@@ -99,6 +105,11 @@ class RestTaskRepository implements TaskRepository {
         'remindBeforeMinutes':
             task.reminders.isNotEmpty ? task.reminders.first.offsetMinutes : 30,
         'tags': task.tags,
+        'recurrenceType': task.recurrenceType,
+        'recurrenceDays': task.recurrenceDays,
+        'recurrenceEndDate': task.recurrenceEndDate?.toUtc().toIso8601String(),
+        'recurrenceCount': task.recurrenceCount,
+        'isRecurrenceActive': task.isRecurrenceActive,
         'force': true,
       };
 
@@ -137,6 +148,21 @@ class RestTaskRepository implements TaskRepository {
         message: 'Failed to toggle task',
         statusCode: e.response?.statusCode,
       );
+    }
+  }
+
+  Future<Map<String, dynamic>> stopRecurrence(String groupId, {bool deleteFuture = true}) async {
+    try {
+      final response = await _dio.post(
+        '/tasks/recurrence/$groupId/stop',
+        queryParameters: {'delete_future': deleteFuture},
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['detail']?.toString() ?? 'Failed to stop recurring series')
+          : 'Failed to stop recurring series';
+      throw ApiException(message: msg, statusCode: e.response?.statusCode);
     }
   }
 

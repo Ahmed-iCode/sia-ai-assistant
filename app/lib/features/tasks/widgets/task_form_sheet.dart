@@ -32,6 +32,7 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _titleController;
   late TextEditingController _descController;
+  late TextEditingController _recurrenceCountController;
 
   late DateTime _selectedDate;
   late TimeOfDay _startTime;
@@ -40,6 +41,31 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
   late int _reminderOffset;
   bool _hasConflict = false;
   String? _conflictingTaskTitle;
+
+  late String _recurrenceType;
+  late Set<String> _recurrenceDays;
+  late String _recurrenceDurationType;
+  DateTime? _recurrenceEndDate;
+
+  String _getWeekdayKey(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'mon';
+      case DateTime.tuesday:
+        return 'tue';
+      case DateTime.wednesday:
+        return 'wed';
+      case DateTime.thursday:
+        return 'thu';
+      case DateTime.friday:
+        return 'fri';
+      case DateTime.saturday:
+        return 'sat';
+      case DateTime.sunday:
+      default:
+        return 'sun';
+    }
+  }
 
   @override
   void initState() {
@@ -61,6 +87,20 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
         ? task!.reminders.first.offsetMinutes
         : 30;
 
+    _recurrenceType = task?.recurrenceType ?? 'none';
+    _recurrenceDays = task?.recurrenceDays != null ? Set<String>.from(task!.recurrenceDays) : {};
+    _recurrenceEndDate = task?.recurrenceEndDate;
+    if (task?.recurrenceEndDate != null) {
+      _recurrenceDurationType = 'untilDate';
+    } else if (task?.recurrenceCount != null) {
+      _recurrenceDurationType = 'count';
+    } else {
+      _recurrenceDurationType = 'ongoing';
+    }
+    _recurrenceCountController = TextEditingController(
+      text: task?.recurrenceCount != null ? task!.recurrenceCount.toString() : '10',
+    );
+
     _checkTimeConflict();
   }
 
@@ -68,6 +108,7 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
+    _recurrenceCountController.dispose();
     super.dispose();
   }
 
@@ -153,6 +194,19 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
     }
   }
 
+  Future<void> _pickRecurrenceEndDate() async {
+    final initial = _recurrenceEndDate ?? _selectedDate.add(const Duration(days: 30));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(_selectedDate) ? _selectedDate : initial,
+      firstDate: _selectedDate,
+      lastDate: DateTime.now().add(const Duration(days: 730)),
+    );
+    if (picked != null) {
+      setState(() => _recurrenceEndDate = picked);
+    }
+  }
+
   Future<void> _saveTask({bool force = false}) async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -167,6 +221,25 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
         ),
       );
       return;
+    }
+
+    final recurrenceType = _recurrenceType;
+    List<String>? recurrenceDays;
+    int? recurrenceCount;
+    DateTime? recurrenceEndDate;
+
+    if (recurrenceType != 'none') {
+      if (recurrenceType == 'weekly') {
+        if (_recurrenceDays.isEmpty) {
+          _recurrenceDays.add(_getWeekdayKey(_selectedDate.weekday));
+        }
+        recurrenceDays = _recurrenceDays.toList();
+      }
+      if (_recurrenceDurationType == 'count') {
+        recurrenceCount = int.tryParse(_recurrenceCountController.text.trim()) ?? 10;
+      } else if (_recurrenceDurationType == 'untilDate') {
+        recurrenceEndDate = _recurrenceEndDate ?? _selectedDate.add(const Duration(days: 30));
+      }
     }
 
     final taskToSave = (widget.initialTask ??
@@ -184,6 +257,10 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
       startTime: start,
       endTime: end,
       priority: _priority,
+      recurrenceType: recurrenceType,
+      recurrenceDays: recurrenceDays,
+      recurrenceCount: recurrenceCount,
+      recurrenceEndDate: recurrenceEndDate,
       reminders: _reminderOffset > 0
           ? [
               ReminderModel(
@@ -310,6 +387,24 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
       (15, '15m'),
       (30, '30m'),
       (60, '1h'),
+    ];
+
+    final isArabic = l10n.locale.languageCode == 'ar';
+    final recurrenceOptions = [
+      ('none', l10n.strings.recurrenceNone),
+      ('daily', l10n.strings.recurrenceDaily),
+      ('weekly', l10n.strings.recurrenceWeekly),
+      ('monthly', l10n.strings.recurrenceMonthly),
+    ];
+
+    final weekDays = [
+      ('sun', isArabic ? 'أحد' : 'Sun'),
+      ('mon', isArabic ? 'إثن' : 'Mon'),
+      ('tue', isArabic ? 'ثلا' : 'Tue'),
+      ('wed', isArabic ? 'أرب' : 'Wed'),
+      ('thu', isArabic ? 'خمي' : 'Thu'),
+      ('fri', isArabic ? 'جمع' : 'Fri'),
+      ('sat', isArabic ? 'سبت' : 'Sat'),
     ];
 
     return Container(
@@ -621,6 +716,233 @@ class _TaskFormSheetState extends ConsumerState<TaskFormSheet> {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 16),
+
+              // Recurrence Section Header
+              Text(
+                l10n.strings.recurrenceLabel,
+                style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+
+              // Recurrence Type Chips (None, Daily, Weekly, Monthly)
+              Row(
+                children: recurrenceOptions.map((opt) {
+                  final isSelected = _recurrenceType == opt.$1;
+                  return Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _recurrenceType = opt.$1;
+                            if (_recurrenceType == 'weekly' && _recurrenceDays.isEmpty) {
+                              _recurrenceDays.add(_getWeekdayKey(_selectedDate.weekday));
+                            }
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.primary.withAlpha(isDark ? 50 : 30)
+                                : (isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.primary
+                                  : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              opt.$2,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+
+              // Weekdays Selector (If Weekly)
+              if (_recurrenceType == 'weekly') ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10n.strings.recurrenceDaysLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: weekDays.map((day) {
+                    final isSelected = _recurrenceDays.contains(day.$1);
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              if (isSelected) {
+                                if (_recurrenceDays.length > 1) {
+                                  _recurrenceDays.remove(day.$1);
+                                }
+                              } else {
+                                _recurrenceDays.add(day.$1);
+                              }
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 7),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.secondary.withAlpha(isDark ? 50 : 30)
+                                  : (isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.secondary
+                                    : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                                width: isSelected ? 1.5 : 1,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                day.$2,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontSize: 10,
+                                  color: isSelected
+                                      ? AppColors.secondary
+                                      : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+
+              // Duration / End Condition Selector (If not None)
+              if (_recurrenceType != 'none') ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10n.strings.recurrenceDurationLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    ('ongoing', l10n.strings.recurrenceOngoing),
+                    ('count', l10n.strings.recurrenceByCount),
+                    ('untilDate', l10n.strings.recurrenceUntilDate),
+                  ].map((dur) {
+                    final isSelected = _recurrenceDurationType == dur.$1;
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: InkWell(
+                          onTap: () => setState(() => _recurrenceDurationType = dur.$1),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.primary.withAlpha(isDark ? 40 : 25)
+                                  : (isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                dur.$2,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontSize: 11,
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+
+                // If Count option is selected
+                if (_recurrenceDurationType == 'count') ...[
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _recurrenceCountController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(LucideIcons.hash, size: 16),
+                      hintText: '10',
+                      suffixText: isArabic ? 'مرات' : 'occurrences',
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ],
+
+                // If Until Date option is selected
+                if (_recurrenceDurationType == 'untilDate') ...[
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: _pickRecurrenceEndDate,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(LucideIcons.calendarCheck, size: 16, color: AppColors.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _recurrenceEndDate != null
+                                  ? DateFormat('d MMM yyyy', l10n.locale.languageCode).format(_recurrenceEndDate!)
+                                  : (isArabic ? 'اختر تاريخ النهاية' : 'Select end date'),
+                              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
               const SizedBox(height: 24),
 
               // Save & Cancel Buttons

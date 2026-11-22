@@ -68,6 +68,14 @@ class Task(Base):
     is_voice_created = Column(Boolean, default=False, nullable=False)
     tags = Column(JSON, default=list, nullable=False)
 
+    # Recurrence Fields
+    recurrence_type = Column(String(20), default="none", server_default="none", nullable=False)
+    recurrence_days = Column(String(50), nullable=True)
+    recurrence_end_date = Column(DateTime(timezone=True), nullable=True)
+    recurrence_count = Column(Integer, nullable=True)
+    recurrence_group_id = Column(String(64), nullable=True, index=True)
+    is_recurrence_active = Column(Boolean, default=True, server_default="true", nullable=False)
+
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 

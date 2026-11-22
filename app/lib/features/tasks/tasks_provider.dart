@@ -167,6 +167,12 @@ class TasksNotifier extends AsyncNotifier<List<TaskModel>> {
     final repo = ref.read(taskRepositoryProvider);
     await repo.deleteTask(id);
   }
+
+  Future<void> stopRecurrence(String groupId, {bool deleteFuture = true}) async {
+    final repo = ref.read(restTaskRepositoryProvider);
+    await repo.stopRecurrence(groupId, deleteFuture: deleteFuture);
+    await refresh();
+  }
 }
 
 final tasksProvider = AsyncNotifierProvider<TasksNotifier, List<TaskModel>>(

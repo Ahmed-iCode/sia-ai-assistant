@@ -15,6 +15,12 @@ class TaskModel {
   final List<ReminderModel> reminders;
   final bool isVoiceCreated;
   final List<String> tags;
+  final String recurrenceType;
+  final List<String> recurrenceDays;
+  final DateTime? recurrenceEndDate;
+  final int? recurrenceCount;
+  final String? recurrenceGroupId;
+  final bool isRecurrenceActive;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -29,6 +35,12 @@ class TaskModel {
     this.reminders = const [],
     this.isVoiceCreated = false,
     this.tags = const [],
+    this.recurrenceType = 'none',
+    this.recurrenceDays = const [],
+    this.recurrenceEndDate,
+    this.recurrenceCount,
+    this.recurrenceGroupId,
+    this.isRecurrenceActive = true,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -37,6 +49,7 @@ class TaskModel {
 
   bool get isCompleted => status == TaskStatus.completed;
   bool get isCancelled => status == TaskStatus.cancelled;
+  bool get isRecurring => recurrenceType != 'none';
 
   bool overlapsWith(DateTime start, DateTime end) {
     return startTime.isBefore(end) && endTime.isAfter(start);
@@ -53,6 +66,12 @@ class TaskModel {
     List<ReminderModel>? reminders,
     bool? isVoiceCreated,
     List<String>? tags,
+    String? recurrenceType,
+    List<String>? recurrenceDays,
+    DateTime? recurrenceEndDate,
+    int? recurrenceCount,
+    String? recurrenceGroupId,
+    bool? isRecurrenceActive,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -67,6 +86,12 @@ class TaskModel {
       reminders: reminders ?? this.reminders,
       isVoiceCreated: isVoiceCreated ?? this.isVoiceCreated,
       tags: tags ?? this.tags,
+      recurrenceType: recurrenceType ?? this.recurrenceType,
+      recurrenceDays: recurrenceDays ?? this.recurrenceDays,
+      recurrenceEndDate: recurrenceEndDate ?? this.recurrenceEndDate,
+      recurrenceCount: recurrenceCount ?? this.recurrenceCount,
+      recurrenceGroupId: recurrenceGroupId ?? this.recurrenceGroupId,
+      isRecurrenceActive: isRecurrenceActive ?? this.isRecurrenceActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -84,6 +109,19 @@ class TaskModel {
       'reminders': reminders.map((r) => r.toJson()).toList(),
       'isVoiceCreated': isVoiceCreated,
       'tags': tags,
+      'recurrenceType': recurrenceType,
+      'recurrenceDays': recurrenceDays,
+      'recurrenceEndDate': recurrenceEndDate?.toUtc().toIso8601String(),
+      'recurrenceCount': recurrenceCount,
+      'recurrenceGroupId': recurrenceGroupId,
+      'isRecurrenceActive': isRecurrenceActive,
+      // Snake case aliases for compatibility
+      'recurrence_type': recurrenceType,
+      'recurrence_days': recurrenceDays,
+      'recurrence_end_date': recurrenceEndDate?.toUtc().toIso8601String(),
+      'recurrence_count': recurrenceCount,
+      'recurrence_group_id': recurrenceGroupId,
+      'is_recurrence_active': isRecurrenceActive,
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
     };
@@ -102,12 +140,35 @@ class TaskModel {
   }
 
   factory TaskModel.fromJson(Map<String, dynamic> json) {
+    final rawType = json['recurrenceType'] ?? json['recurrence_type'];
+    final rawDays = json['recurrenceDays'] ?? json['recurrence_days'];
+    final rawEndDate = json['recurrenceEndDate'] ?? json['recurrence_end_date'];
+    final rawCount = json['recurrenceCount'] ?? json['recurrence_count'];
+    final rawGroupId = json['recurrenceGroupId'] ?? json['recurrence_group_id'];
+    final rawActive = json['isRecurrenceActive'] ?? json['is_recurrence_active'];
+
+    DateTime? parsedEndDate;
+    if (rawEndDate != null) {
+      parsedEndDate = _parseUtcToLocal(rawEndDate);
+    }
+
+    List<String> parsedDays = [];
+    if (rawDays is List) {
+      parsedDays = rawDays.map((e) => e.toString().toLowerCase()).toList();
+    } else if (rawDays is String && rawDays.isNotEmpty) {
+      parsedDays = rawDays
+          .split(',')
+          .map((e) => e.trim().toLowerCase())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
     return TaskModel(
       id: json['id'] as String,
       title: json['title'] as String,
       description: json['description'] as String?,
-      startTime: _parseUtcToLocal(json['startTime']),
-      endTime: _parseUtcToLocal(json['endTime']),
+      startTime: _parseUtcToLocal(json['startTime'] ?? json['start_time']),
+      endTime: _parseUtcToLocal(json['endTime'] ?? json['end_time']),
       priority: TaskPriority.values.firstWhere(
         (e) => e.name == json['priority'],
         orElse: () => TaskPriority.medium,
@@ -120,10 +181,16 @@ class TaskModel {
               ?.map((e) => ReminderModel.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      isVoiceCreated: json['isVoiceCreated'] as bool? ?? false,
+      isVoiceCreated: (json['isVoiceCreated'] ?? json['is_voice_created']) as bool? ?? false,
       tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
-      createdAt: _parseUtcToLocal(json['createdAt']),
-      updatedAt: _parseUtcToLocal(json['updatedAt']),
+      recurrenceType: (rawType as String?) ?? 'none',
+      recurrenceDays: parsedDays,
+      recurrenceEndDate: parsedEndDate,
+      recurrenceCount: rawCount as int?,
+      recurrenceGroupId: rawGroupId as String?,
+      isRecurrenceActive: (rawActive as bool?) ?? true,
+      createdAt: _parseUtcToLocal(json['createdAt'] ?? json['created_at']),
+      updatedAt: _parseUtcToLocal(json['updatedAt'] ?? json['updated_at']),
     );
   }
 }

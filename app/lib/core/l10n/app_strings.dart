@@ -61,6 +61,22 @@ class AppStrings {
   final String validationTimeOrder;
   final String conflictDetectedWarning;
 
+  // Recurrence
+  final String recurrenceLabel;
+  final String recurrenceNone;
+  final String recurrenceDaily;
+  final String recurrenceWeekly;
+  final String recurrenceMonthly;
+  final String recurrenceDaysLabel;
+  final String recurrenceDurationLabel;
+  final String recurrenceOngoing;
+  final String recurrenceByCount;
+  final String recurrenceUntilDate;
+  final String stopRepeating;
+  final String stopRepeatingConfirmTitle;
+  final String stopRepeatingConfirmDesc;
+  final String stopRepeatingConfirmButton;
+
   // AI Assistant Chat & Voice
   final String aiAssistantTitle;
   final String aiWelcomeMessage;
@@ -217,6 +233,20 @@ class AppStrings {
     required this.validationTitleRequired,
     required this.validationTimeOrder,
     required this.conflictDetectedWarning,
+    required this.recurrenceLabel,
+    required this.recurrenceNone,
+    required this.recurrenceDaily,
+    required this.recurrenceWeekly,
+    required this.recurrenceMonthly,
+    required this.recurrenceDaysLabel,
+    required this.recurrenceDurationLabel,
+    required this.recurrenceOngoing,
+    required this.recurrenceByCount,
+    required this.recurrenceUntilDate,
+    required this.stopRepeating,
+    required this.stopRepeatingConfirmTitle,
+    required this.stopRepeatingConfirmDesc,
+    required this.stopRepeatingConfirmButton,
     required this.aiAssistantTitle,
     required this.aiWelcomeMessage,
     required this.aiTypingHint,
@@ -363,6 +393,20 @@ class AppStrings {
     validationTitleRequired: 'يرجى إدخال عنوان المهمة',
     validationTimeOrder: 'وقت الانتهاء يجب أن يكون بعد وقت البدء',
     conflictDetectedWarning: 'تنبيه: الوقت يتعارض مع مهمة مجدولة بالفعل!',
+    recurrenceLabel: 'التكرار',
+    recurrenceNone: 'بدون',
+    recurrenceDaily: 'يومياً',
+    recurrenceWeekly: 'أسبوعياً',
+    recurrenceMonthly: 'شهرياً',
+    recurrenceDaysLabel: 'أيام التكرار',
+    recurrenceDurationLabel: 'نهاية التكرار',
+    recurrenceOngoing: 'مستمر (حتى الإيقاف)',
+    recurrenceByCount: 'عدد المرات',
+    recurrenceUntilDate: 'حتى تاريخ',
+    stopRepeating: 'إيقاف التكرار',
+    stopRepeatingConfirmTitle: 'إيقاف تكرار المهمة',
+    stopRepeatingConfirmDesc: 'هل تريد إيقاف تكرار هذه المهمة؟ سيتم مسح المواعيد القادمة مع الاحتفاظ بسجل المواعيد السابقة.',
+    stopRepeatingConfirmButton: 'إيقاف ومسح القادم',
     aiAssistantTitle: 'المساعد الذكي الصوتي',
     aiWelcomeMessage: 'أهلاً بك! أنا مساعدك الذكي لتنظيم الوقت. يمكنك التحدث معي صوتياً أو كتابياً لتنظيم جدولك، فحص أوقات الفراغ، وتفادي التعارضات.',
     aiTypingHint: 'تحدث أو اكتب طلبك (مثال: أنا فاضي إمتى النهاردة؟)...',
@@ -509,6 +553,20 @@ class AppStrings {
     validationTitleRequired: 'Please enter a task title',
     validationTimeOrder: 'End time must be after start time',
     conflictDetectedWarning: 'Warning: Time overlaps with an existing task!',
+    recurrenceLabel: 'Repeat',
+    recurrenceNone: 'None',
+    recurrenceDaily: 'Daily',
+    recurrenceWeekly: 'Weekly',
+    recurrenceMonthly: 'Monthly',
+    recurrenceDaysLabel: 'Repeat on',
+    recurrenceDurationLabel: 'Repeat Ends',
+    recurrenceOngoing: 'Ongoing',
+    recurrenceByCount: 'By Count',
+    recurrenceUntilDate: 'Until Date',
+    stopRepeating: 'Stop Repeating',
+    stopRepeatingConfirmTitle: 'Stop Repeating Task',
+    stopRepeatingConfirmDesc: 'Are you sure you want to stop repeating this task? Future uncompleted occurrences will be removed while keeping your past history intact.',
+    stopRepeatingConfirmButton: 'Stop & Delete Future',
     aiAssistantTitle: 'Voice AI Task Assistant',
     aiWelcomeMessage: 'Welcome! I am your AI Schedule Assistant. You can speak or type to manage tasks, scan free slots, and resolve calendar conflicts seamlessly.',
     aiTypingHint: 'Speak or type a request (e.g., When am I free today?)...',

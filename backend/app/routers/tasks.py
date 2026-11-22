@@ -17,10 +17,12 @@ from app.schemas.task import (
     FileExtractionResponse,
     BatchTaskCreate,
     BatchTaskResponse,
+    StopRecurrenceResponse,
 )
 from app.schemas.free_slot import FreeSlotResponse
 from app.services.schedule_service import ScheduleService
 from app.services.reminder_service import ReminderService
+from app.services.recurrence_service import RecurrenceService
 from app.ai.file_extractor import extract_schedule_from_file
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,12 @@ def get_tasks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Auto-refill rolling window occurrences for active recurring tasks
+    try:
+        RecurrenceService.ensure_rolling_occurrences(db=db, user_id=current_user.id)
+    except Exception as e:
+        logger.warning(f"Error ensuring rolling occurrences: {e}")
+
     query = db.query(Task).filter(Task.user_id == current_user.id)
 
     if start_date:
@@ -108,7 +116,16 @@ def create_task(
                 detail=conflict_detail.model_dump(by_alias=True, mode="json"),
             )
 
-    # 2. Persist Task
+    # 2. Persist Task (Recurring or Single)
+    if task_in.recurrence_type and task_in.recurrence_type != "none":
+        primary_task = RecurrenceService.create_recurring_series(
+            db=db,
+            user=current_user,
+            task_in=task_in,
+        )
+        return primary_task
+
+    days_str = ",".join(task_in.recurrence_days) if task_in.recurrence_days else None
     task = Task(
         user_id=current_user.id,
         title=task_in.title,
@@ -119,6 +136,12 @@ def create_task(
         status=task_in.status.value,
         is_voice_created=task_in.is_voice_created,
         tags=task_in.tags,
+        recurrence_type="none",
+        recurrence_days=days_str,
+        recurrence_end_date=task_in.recurrence_end_date,
+        recurrence_count=task_in.recurrence_count,
+        recurrence_group_id=task_in.recurrence_group_id,
+        is_recurrence_active=task_in.is_recurrence_active,
     )
     db.add(task)
     db.flush()
@@ -365,6 +388,16 @@ def update_task(
         task.is_voice_created = task_in.is_voice_created
     if task_in.tags is not None:
         task.tags = task_in.tags
+    if task_in.recurrence_type is not None:
+        task.recurrence_type = task_in.recurrence_type
+    if task_in.recurrence_days is not None:
+        task.recurrence_days = ",".join(task_in.recurrence_days) if task_in.recurrence_days else None
+    if task_in.recurrence_end_date is not None:
+        task.recurrence_end_date = task_in.recurrence_end_date
+    if task_in.recurrence_count is not None:
+        task.recurrence_count = task_in.recurrence_count
+    if task_in.is_recurrence_active is not None:
+        task.is_recurrence_active = task_in.is_recurrence_active
 
     # Synchronize reminder if start_time or remind_before_minutes changed
     if task_in.remind_before_minutes is not None or task_in.start_time is not None:
@@ -394,10 +427,32 @@ def toggle_task(
         task.status = TaskStatus.pending.value
     else:
         task.status = TaskStatus.completed.value
+        # If completing a recurring task, ensure rolling window is topped up
+        if task.recurrence_type != "none" and task.is_recurrence_active:
+            try:
+                RecurrenceService.ensure_rolling_occurrences(db=db, user_id=current_user.id)
+            except Exception as e:
+                logger.warning(f"Error topping up recurring tasks on toggle: {e}")
 
     db.commit()
     db.refresh(task)
     return task
+
+
+@router.post("/recurrence/{group_id}/stop", response_model=StopRecurrenceResponse)
+def stop_recurring_series_endpoint(
+    group_id: str,
+    delete_future: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = RecurrenceService.stop_recurrence_series(
+        db=db,
+        user_id=current_user.id,
+        group_id=group_id,
+        delete_future=delete_future,
+    )
+    return result
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

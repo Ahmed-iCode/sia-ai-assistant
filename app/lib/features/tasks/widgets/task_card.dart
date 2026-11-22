@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/models/task_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/google_calendar_helper.dart';
+import '../tasks_provider.dart';
 
-class TaskCard extends StatelessWidget {
+class TaskCard extends ConsumerWidget {
   final TaskModel task;
   final VoidCallback onToggleComplete;
   final VoidCallback onEdit;
@@ -46,8 +48,21 @@ class TaskCard extends StatelessWidget {
     }
   }
 
+  String _getRecurrenceLabel(String type, AppLocalizations l10n) {
+    switch (type.toLowerCase()) {
+      case 'daily':
+        return l10n.strings.recurrenceDaily;
+      case 'weekly':
+        return l10n.strings.recurrenceWeekly;
+      case 'monthly':
+        return l10n.strings.recurrenceMonthly;
+      default:
+        return l10n.strings.recurrenceLabel;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -153,6 +168,33 @@ class TaskCard extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (task.isRecurring)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withAlpha(isDark ? 35 : 20),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: AppColors.primary.withAlpha(60),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(LucideIcons.repeat, size: 11, color: AppColors.primary),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _getRecurrenceLabel(task.recurrenceType, l10n),
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -239,15 +281,34 @@ class TaskCard extends StatelessWidget {
                         if (value == 'delete') onDelete();
                         if (value == 'toggle') onToggleComplete();
                         if (value == 'google_calendar') GoogleCalendarHelper.openInGoogleCalendar(task);
+                        if (value == 'stop_recurrence') _showStopRecurrenceDialog(context, ref, l10n);
                       },
                       itemBuilder: (context) => [
+                        if (task.recurrenceGroupId != null && task.isRecurrenceActive)
+                          PopupMenuItem(
+                            value: 'stop_recurrence',
+                            child: Row(
+                              children: [
+                                const Icon(LucideIcons.repeat, size: 16, color: AppColors.warning),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    l10n.strings.stopRepeating,
+                                    style: const TextStyle(color: AppColors.warning),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         PopupMenuItem(
                           value: 'google_calendar',
                           child: Row(
                             children: [
-                              const Icon(LucideIcons.calendarPlus, size: 16, color: AppColors.primary),
-                              const SizedBox(width: 10),
-                              Text(l10n.strings.addToGoogleCalendar),
+                                const Icon(LucideIcons.calendarPlus, size: 16, color: AppColors.primary),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(l10n.strings.addToGoogleCalendar),
+                                ),
                             ],
                           ),
                         ),
@@ -261,7 +322,9 @@ class TaskCard extends StatelessWidget {
                                 color: isCompleted ? AppColors.warning : AppColors.success,
                               ),
                               const SizedBox(width: 10),
-                              Text(isCompleted ? l10n.strings.markIncomplete : l10n.strings.markComplete),
+                              Expanded(
+                                child: Text(isCompleted ? l10n.strings.markIncomplete : l10n.strings.markComplete),
+                              ),
                             ],
                           ),
                         ),
@@ -271,7 +334,9 @@ class TaskCard extends StatelessWidget {
                             children: [
                               const Icon(LucideIcons.edit2, size: 16),
                               const SizedBox(width: 10),
-                              Text(l10n.strings.editTask),
+                              Expanded(
+                                child: Text(l10n.strings.editTask),
+                              ),
                             ],
                           ),
                         ),
@@ -281,9 +346,11 @@ class TaskCard extends StatelessWidget {
                             children: [
                               const Icon(LucideIcons.trash2, size: 16, color: AppColors.error),
                               const SizedBox(width: 10),
-                              Text(
-                                l10n.strings.deleteTask,
-                                style: const TextStyle(color: AppColors.error),
+                              Expanded(
+                                child: Text(
+                                  l10n.strings.deleteTask,
+                                  style: const TextStyle(color: AppColors.error),
+                                ),
                               ),
                             ],
                           ),
@@ -387,6 +454,73 @@ class TaskCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showStopRecurrenceDialog(
+    BuildContext context,
+    WidgetRef ref,
+    AppLocalizations l10n,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(LucideIcons.repeat, color: AppColors.warning, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                l10n.strings.stopRepeatingConfirmTitle,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          l10n.strings.stopRepeatingConfirmDesc,
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l10n.strings.cancelButton),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await ref.read(tasksProvider.notifier).stopRecurrence(
+                      task.recurrenceGroupId!,
+                      deleteFuture: true,
+                    );
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(l10n.strings.stopRepeating),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(e.toString().replaceFirst('ApiException: ', '')),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.warning,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(l10n.strings.stopRepeatingConfirmButton),
+          ),
+        ],
       ),
     );
   }

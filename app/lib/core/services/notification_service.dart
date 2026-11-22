@@ -235,21 +235,36 @@ class NotificationService {
     await initialize();
 
     final nowUtc = DateTime.now().toUtc();
+    final windowCutoff = nowUtc.add(const Duration(days: 14));
+
+    // Filter and sort active upcoming tasks within next 14 days
+    final upcomingTasks = tasks
+        .where((t) => !t.isCompleted && !t.isCancelled)
+        .where((t) {
+          final reminderMinutes = t.reminders.isNotEmpty
+              ? t.reminders.first.offsetMinutes
+              : 30;
+          final reminderUtc =
+              t.startTime.toUtc().subtract(Duration(minutes: reminderMinutes));
+          return reminderUtc.isAfter(nowUtc) && t.startTime.toUtc().isBefore(windowCutoff);
+        })
+        .toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    // Cap at 40 alarms max to safeguard Android AlarmManager limits
+    final toSchedule = upcomingTasks.take(40).toList();
+    final toScheduleIds = toSchedule.map((t) => t.id).toSet();
+
+    // Cancel reminders for completed, cancelled, or out-of-window tasks
     for (final task in tasks) {
-      if (task.isCompleted || task.isCancelled) {
+      if (!toScheduleIds.contains(task.id)) {
         await cancelTaskReminder(task.id);
-      } else {
-        final reminderMinutes = task.reminders.isNotEmpty
-            ? task.reminders.first.offsetMinutes
-            : 30;
-        final reminderUtc =
-            task.startTime.toUtc().subtract(Duration(minutes: reminderMinutes));
-        if (reminderUtc.isAfter(nowUtc)) {
-          await scheduleTaskReminder(task);
-        } else {
-          await cancelTaskReminder(task.id);
-        }
       }
+    }
+
+    // Schedule valid within-window tasks
+    for (final task in toSchedule) {
+      await scheduleTaskReminder(task);
     }
   }
 

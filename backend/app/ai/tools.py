@@ -12,6 +12,7 @@ from app.schemas.free_slot import FreeSlotResponse
 from app.schemas.action_card import AiActionCardResponse
 from app.services.schedule_service import ScheduleService, ensure_aware
 from app.services.reminder_service import ReminderService
+from app.services.recurrence_service import RecurrenceService
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +69,13 @@ class ToolExecutor:
         priority: str = "medium",
         remind_before_minutes: Optional[int] = 30,
         force: bool = False,
+        recurrence_type: str = "none",
+        recurrence_days: Optional[List[str]] = None,
+        recurrence_end_date: Optional[str] = None,
+        recurrence_count: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Creates a new task in user's calendar.
+        Creates a new task in user's calendar. Supports recurring tasks.
         Checks for schedule conflicts unless force is True.
         """
         tz_name = self.user.timezone or "Africa/Cairo"
@@ -85,6 +90,53 @@ class ToolExecutor:
             p_enum = TaskPriority(priority.lower())
         except Exception:
             p_enum = TaskPriority.medium
+
+        # Handle recurring task creation
+        rec_type = (recurrence_type or "none").lower()
+        if rec_type != "none":
+            rec_end_dt: Optional[datetime] = None
+            if recurrence_end_date:
+                try:
+                    rec_end_dt = parse_datetime(recurrence_end_date, tz_name)
+                except Exception:
+                    rec_end_dt = None
+
+            task_in = TaskCreate(
+                title=title,
+                description=description,
+                start_time=dt_start,
+                end_time=dt_end,
+                priority=p_enum,
+                status=TaskStatus.pending,
+                remind_before_minutes=remind_before_minutes,
+                is_voice_created=self.is_voice,
+                tags=[],
+                recurrence_type=rec_type,
+                recurrence_days=recurrence_days or [],
+                recurrence_end_date=rec_end_dt,
+                recurrence_count=recurrence_count,
+                force=force,
+            )
+
+            primary_task = RecurrenceService.create_recurring_series(
+                db=self.db,
+                user=self.user,
+                task_in=task_in,
+            )
+
+            task_response = TaskResponse.model_validate(primary_task)
+            self.tasks_mutated = True
+            self.action_card = AiActionCardResponse(
+                type=AiCardType.taskCreated,
+                task=task_response,
+                message=f"Recurring task created successfully ({rec_type})",
+            )
+
+            return {
+                "status": "success",
+                "message": f"Recurring task '{primary_task.title}' created successfully ({rec_type}).",
+                "task": task_response.model_dump(mode="json", by_alias=True),
+            }
 
         # Conflict check
         conflicts = ScheduleService.check_conflicts(
@@ -396,6 +448,55 @@ class ToolExecutor:
             "tasks": [t.model_dump(mode="json", by_alias=True) for t in created_tasks],
         }
 
+    def stop_recurring_task(
+        self,
+        search_query: str,
+        delete_future: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Stops an active recurring task series matching search_query.
+        """
+        search_fmt = f"%{search_query.strip()}%"
+        matched_task = (
+            self.db.query(Task)
+            .filter(
+                Task.user_id == self.user.id,
+                Task.is_recurrence_active.is_(True),
+                Task.recurrence_type != "none",
+                Task.recurrence_group_id.isnot(None),
+                or_(
+                    Task.title.ilike(search_fmt),
+                    Task.description.ilike(search_fmt),
+                ),
+            )
+            .order_by(Task.start_time.asc())
+            .first()
+        )
+
+        if not matched_task or not matched_task.recurrence_group_id:
+            return {
+                "status": "not_found",
+                "message": f"لم يتم العثور على مهمة متكررة نشطة تطابق '{search_query}'. / No active recurring series found matching '{search_query}'.",
+            }
+
+        group_id = matched_task.recurrence_group_id
+        task_title = matched_task.title
+        result = RecurrenceService.stop_recurrence_series(
+            db=self.db,
+            user_id=self.user.id,
+            group_id=group_id,
+            delete_future=delete_future,
+        )
+
+        self.tasks_mutated = True
+        return {
+            "status": "success",
+            "message": f"تم إيقاف تكرار '{task_title}' بنجاح ومسح {result['deletedFutureCount']} مواعيد قادمة مع الاحتفاظ بالسجل السابق.",
+            "title": task_title,
+            "groupId": group_id,
+            "deletedFutureCount": result["deletedFutureCount"],
+        }
+
     def dispatch(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Dispatches a tool call dynamically to the matching method.
@@ -419,8 +520,12 @@ def create_task(
     priority: str = "medium",
     remind_before_minutes: Optional[int] = 30,
     force: bool = False,
+    recurrence_type: str = "none",
+    recurrence_days: Optional[List[str]] = None,
+    recurrence_end_date: Optional[str] = None,
+    recurrence_count: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Create a new task in user calendar. Checks for schedule conflicts unless force is True.
+    """Create a new task in user calendar. Checks for schedule conflicts unless force is True. Supports recurrence.
     Args:
         title: Title/name of the task.
         start_time: ISO-8601 formatted start time (e.g. 2026-11-21T15:00:00+02:00).
@@ -429,6 +534,10 @@ def create_task(
         priority: One of 'urgent', 'high', 'medium', 'low'.
         remind_before_minutes: Minutes before start_time to trigger reminder (e.g. 30).
         force: If True, schedules despite conflicts.
+        recurrence_type: Recurrence mode ('none', 'daily', 'weekly', 'monthly').
+        recurrence_days: For weekly recurring tasks, list of 3-letter lowercase weekdays e.g. ['sun', 'tue'].
+        recurrence_end_date: Optional ISO-8601 end cutoff for recurrence.
+        recurrence_count: Optional maximum number of total occurrences.
     """
     return {}
 
@@ -507,6 +616,18 @@ def break_down_goal(
     return {}
 
 
+def stop_recurring_task(
+    search_query: str,
+    delete_future: bool = True,
+) -> Dict[str, Any]:
+    """Stop an active recurring task series matching a search keyword or title.
+    Args:
+        search_query: Keyword or title to find the recurring task (e.g. 'دكتور', 'gym', 'meeting').
+        delete_future: If True, deletes future uncompleted occurrences while preserving past/completed ones.
+    """
+    return {}
+
+
 GEMINI_TOOL_DEFINITIONS = [
     create_task,
     get_tasks,
@@ -514,5 +635,6 @@ GEMINI_TOOL_DEFINITIONS = [
     update_task,
     delete_task,
     break_down_goal,
+    stop_recurring_task,
 ]
 
