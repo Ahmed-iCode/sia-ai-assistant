@@ -489,29 +489,39 @@ class SettingsScreen extends ConsumerWidget {
                                 final canExact = await ref
                                     .read(notificationServiceProvider)
                                     .canScheduleExactAlarms();
-                                final success = await ref
+                                final result = await ref
                                     .read(notificationServiceProvider)
                                     .scheduleDelayed10sTestNotification();
                                 ref.invalidate(pendingNotificationsCountProvider);
                                 ref.invalidate(canScheduleExactAlarmsProvider);
                                 if (context.mounted) {
+                                  String message;
+                                  if (result.success) {
+                                    if (result.isExact || (canExact && !result.isInexact)) {
+                                      message = l10n.isArabic
+                                          ? '⏰ تم جدولة التنبيه الدقيق بعد 10 ثواني! اقفل الشاشة للتأكد من رنينه.'
+                                          : '⏰ Exact alarm scheduled for 10 seconds! Lock your screen to verify.';
+                                    } else {
+                                      message = l10n.isArabic
+                                          ? '⏰ تم جدولة التنبيه (بالوضع التقريبي) بعد 10 ثواني! قم بتفعيل صلاحية المنبه الدقيق لدقة 100%.'
+                                          : '⏰ Alarm scheduled (inexact mode) for 10 seconds! Grant exact alarm permission for 100% accuracy.';
+                                    }
+                                  } else {
+                                    final err = result.errorMessage;
+                                    message = l10n.isArabic
+                                        ? (err != null && err.isNotEmpty
+                                            ? 'تعذر جدولة التنبيه ($err)'
+                                            : 'تعذر جدولة التنبيه، يُرجى التأكد من صلاحيات المنبه والإشعارات.')
+                                        : (err != null && err.isNotEmpty
+                                            ? 'Could not schedule alarm ($err)'
+                                            : 'Could not schedule alarm. Please check alarm and notification permissions.');
+                                  }
+
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(
-                                        success
-                                            ? (canExact
-                                                ? (l10n.isArabic
-                                                    ? '⏰ تم جدولة التنبيه الدقيق بعد 10 ثواني! اقفل الشاشة للتأكد من رنينه.'
-                                                    : '⏰ Exact alarm scheduled for 10 seconds! Lock your screen to verify.')
-                                                : (l10n.isArabic
-                                                    ? '⏰ تم جدولة التنبيه (بالوضع التقريبي) بعد 10 ثواني! قم بتفعيل صلاحية المنبه الدقيق لدقة 100%.'
-                                                    : '⏰ Alarm scheduled (inexact mode) for 10 seconds! Grant exact alarm permission for 100% accuracy.'))
-                                            : (l10n.isArabic
-                                                ? 'تعذر جدولة التنبيه، يُرجى التأكد من صلاحيات المنبه والإشعارات.'
-                                                : 'Could not schedule alarm. Please check alarm and notification permissions.'),
-                                      ),
-                                      duration: const Duration(seconds: 6),
-                                      backgroundColor: success
+                                      content: Text(message),
+                                      duration: Duration(seconds: result.success ? 6 : 8),
+                                      backgroundColor: result.success
                                           ? AppColors.primary
                                           : AppColors.error,
                                     ),

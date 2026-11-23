@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +11,25 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/task_model.dart';
 import 'app_update_service.dart';
 import 'rest_task_repository.dart';
+
+class ScheduleResult {
+  final bool success;
+  final String mode; // 'exact', 'inexact', 'none', 'test_or_web', 'cancelled', 'past'
+  final String? errorMessage;
+
+  const ScheduleResult({
+    required this.success,
+    this.mode = 'none',
+    this.errorMessage,
+  });
+
+  bool get isExact => mode == 'exact';
+  bool get isInexact => mode == 'inexact';
+
+  @override
+  String toString() =>
+      'ScheduleResult(success: $success, mode: $mode, errorMessage: $errorMessage)';
+}
 
 class NotificationService {
   static final NotificationService instance = NotificationService();
@@ -25,6 +45,7 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin;
   bool _isInitialized = false;
+  bool _timeZoneInitialized = false;
   Timer? _webReminderPoller;
   bool allowInTests;
 
@@ -41,6 +62,74 @@ class NotificationService {
       if (Platform.environment.containsKey('FLUTTER_TEST')) return true;
     } catch (_) {}
     return false;
+  }
+
+  /// Safe local location helper that never throws LateInitializationError.
+  tz.Location get _safeLocalLocation {
+    try {
+      return tz.local;
+    } catch (_) {
+      try {
+        tz.initializeTimeZones();
+      } catch (_) {}
+      try {
+        return tz.getLocation('Africa/Cairo');
+      } catch (_) {
+        return tz.UTC;
+      }
+    }
+  }
+
+  /// Ensures timezones database and tz.local are safely initialized.
+  /// Wrapped in try/catch to protect against platform-specific timezone lookup failures.
+  Future<void> _ensureTimeZoneInitialized({String? preferredTimezone}) async {
+    if (_timeZoneInitialized) return;
+
+    try {
+      tz.initializeTimeZones();
+    } catch (e) {
+      debugPrint('[NotificationService] tz.initializeTimeZones() error: $e');
+    }
+
+    String? resolvedName = preferredTimezone;
+    if (resolvedName == null && !kIsWeb) {
+      try {
+        final info = await FlutterTimezone.getLocalTimezone();
+        resolvedName = info.identifier;
+      } catch (e) {
+        debugPrint(
+            '[NotificationService] FlutterTimezone.getLocalTimezone() failed: $e');
+      }
+    }
+
+    bool localSet = false;
+    if (resolvedName != null && resolvedName.isNotEmpty) {
+      try {
+        tz.setLocalLocation(tz.getLocation(resolvedName));
+        localSet = true;
+      } catch (e) {
+        debugPrint(
+            '[NotificationService] Failed to set location for "$resolvedName": $e');
+      }
+    }
+
+    if (!localSet) {
+      try {
+        tz.setLocalLocation(tz.getLocation('Africa/Cairo'));
+        localSet = true;
+      } catch (e) {
+        debugPrint('[NotificationService] Could not set Africa/Cairo: $e');
+      }
+    }
+
+    if (!localSet) {
+      try {
+        tz.setLocalLocation(tz.UTC);
+        localSet = true;
+      } catch (_) {}
+    }
+
+    _timeZoneInitialized = true;
   }
 
   /// Pure computation for reminder trigger time with smart clamping.
@@ -77,6 +166,8 @@ class NotificationService {
   }
 
   Future<void> initialize({String timezoneName = 'Africa/Cairo'}) async {
+    await _ensureTimeZoneInitialized(preferredTimezone: timezoneName);
+
     if (_isInitialized) return;
 
     if (_isTestOrWeb) {
@@ -85,15 +176,6 @@ class NotificationService {
     }
 
     try {
-      tz.initializeTimeZones();
-      try {
-        tz.setLocalLocation(tz.getLocation(timezoneName));
-      } catch (_) {
-        try {
-          tz.setLocalLocation(tz.getLocation('Africa/Cairo'));
-        } catch (_) {}
-      }
-
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
       const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: false,
@@ -109,14 +191,18 @@ class NotificationService {
       await _notificationsPlugin.initialize(
         initSettings,
         onDidReceiveNotificationResponse: (response) {
-          final payload = response.payload;
-          if (payload != null &&
-              (payload.startsWith('http://') || payload.startsWith('https://'))) {
-            try {
-              launchUrl(Uri.parse(payload), mode: LaunchMode.externalApplication);
-            } catch (e) {
-              debugPrint('[NotificationService] Error launching notification URL: $e');
+          try {
+            final payload = response.payload;
+            if (payload != null &&
+                (payload.startsWith('http://') || payload.startsWith('https://'))) {
+              launchUrl(Uri.parse(payload), mode: LaunchMode.externalApplication)
+                  .catchError((e) {
+                debugPrint('[NotificationService] Error launching notification URL: $e');
+                return false;
+              });
             }
+          } catch (e) {
+            debugPrint('[NotificationService] Error handling notification tap: $e');
           }
         },
       );
@@ -237,21 +323,29 @@ class NotificationService {
     return false;
   }
 
-  Future<void> scheduleTaskReminder(TaskModel task) async {
-    if (_isTestOrWeb) return;
+  Future<ScheduleResult> scheduleTaskReminder(TaskModel task) async {
+    if (_isTestOrWeb) {
+      return const ScheduleResult(success: true, mode: 'test_or_web');
+    }
     if (task.isCompleted || task.isCancelled) {
       await cancelTaskReminder(task.id);
-      return;
+      return const ScheduleResult(success: true, mode: 'cancelled');
     }
 
     final triggerUtc = calculateTriggerUtc(task);
     if (triggerUtc == null) {
       // Past reminder & task time, cancel existing reminder if any
       await cancelTaskReminder(task.id);
-      return;
+      return const ScheduleResult(success: true, mode: 'past');
     }
 
-    await initialize();
+    try {
+      await initialize();
+      await _ensureTimeZoneInitialized();
+    } catch (e) {
+      debugPrint(
+          '[NotificationService] Error initializing before scheduleTaskReminder: $e');
+    }
 
     final reminderMinutes = task.reminders.isNotEmpty
         ? task.reminders.first.offsetMinutes
@@ -263,7 +357,7 @@ class NotificationService {
         !reminderUtc.isAfter(nowUtc) && task.startTime.toUtc().isAfter(nowUtc);
 
     final notificationId = task.id.hashCode & 0x7FFFFFFF;
-    final tzReminder = tz.TZDateTime.from(triggerUtc, tz.UTC);
+    final tzReminder = tz.TZDateTime.from(triggerUtc, _safeLocalLocation);
 
     const androidDetails = AndroidNotificationDetails(
       channelId,
@@ -302,6 +396,7 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: task.id,
       );
+      return const ScheduleResult(success: true, mode: 'exact');
     } catch (e) {
       debugPrint(
           'Exact alarm failed ($e), falling back to inexactAllowWhileIdle');
@@ -317,8 +412,14 @@ class NotificationService {
               UILocalNotificationDateInterpretation.absoluteTime,
           payload: task.id,
         );
+        return const ScheduleResult(success: true, mode: 'inexact');
       } catch (err) {
         debugPrint('Fallback inexact alarm also failed: $err');
+        return ScheduleResult(
+          success: false,
+          mode: 'none',
+          errorMessage: err.toString(),
+        );
       }
     }
   }
@@ -421,16 +522,23 @@ class NotificationService {
   }
 
   /// Diagnostics: Schedule a test notification 10 seconds from now
-  Future<bool> scheduleDelayed10sTestNotification({
+  Future<ScheduleResult> scheduleDelayed10sTestNotification({
     String title = '⏰ تذكير تجريبي بعد 10 ثواني | Sia Test',
     String body = 'نجح اختبار التنبيه المجدول بينما التطبيق مغلق أو في الخلفية!',
   }) async {
-    if (_isTestOrWeb) return false;
-    await initialize();
-    await requestPermissions();
+    if (_isTestOrWeb) {
+      return const ScheduleResult(success: true, mode: 'test_or_web');
+    }
+    try {
+      await initialize();
+      await requestPermissions();
+      await _ensureTimeZoneInitialized();
+    } catch (e) {
+      debugPrint('[NotificationService] Pre-test init error: $e');
+    }
 
     final triggerUtc = DateTime.now().toUtc().add(const Duration(seconds: 10));
-    final tzTrigger = tz.TZDateTime.from(triggerUtc, tz.UTC);
+    final tzTrigger = tz.TZDateTime.from(triggerUtc, _safeLocalLocation);
 
     const androidDetails = AndroidNotificationDetails(
       channelId,
@@ -459,7 +567,7 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      return true;
+      return const ScheduleResult(success: true, mode: 'exact');
     } catch (e) {
       debugPrint('Exact 10s test alarm failed, fallback to inexact: $e');
       try {
@@ -473,10 +581,14 @@ class NotificationService {
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
         );
-        return true;
+        return const ScheduleResult(success: true, mode: 'inexact');
       } catch (err) {
         debugPrint('Fallback 10s test alarm failed: $err');
-        return false;
+        return ScheduleResult(
+          success: false,
+          mode: 'none',
+          errorMessage: err.toString(),
+        );
       }
     }
   }

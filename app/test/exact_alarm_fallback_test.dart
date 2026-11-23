@@ -104,7 +104,9 @@ void main() {
         ],
       );
 
-      await service.scheduleTaskReminder(task);
+      final result = await service.scheduleTaskReminder(task);
+      expect(result.success, isTrue);
+      expect(result.isInexact, isTrue);
 
       final zonedCalls =
           methodCalls.where((call) => call.method == 'zonedSchedule').toList();
@@ -127,8 +129,9 @@ void main() {
     test(
         'scheduleDelayed10sTestNotification falls back to inexact and returns true',
         () async {
-      final success = await service.scheduleDelayed10sTestNotification();
-      expect(success, isTrue);
+      final result = await service.scheduleDelayed10sTestNotification();
+      expect(result.success, isTrue);
+      expect(result.isInexact, isTrue);
 
       final zonedCalls =
           methodCalls.where((call) => call.method == 'zonedSchedule').toList();
