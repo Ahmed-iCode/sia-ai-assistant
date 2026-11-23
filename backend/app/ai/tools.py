@@ -101,6 +101,13 @@ class ToolExecutor:
                 except Exception:
                     rec_end_dt = None
 
+            rec_offset = remind_before_minutes
+            if rec_offset is not None and rec_offset > 0:
+                user_tz = ZoneInfo(tz_name)
+                now_user = datetime.now(user_tz)
+                if dt_start - timedelta(minutes=rec_offset) <= now_user and dt_start > now_user:
+                    rec_offset = 0
+
             task_in = TaskCreate(
                 title=title,
                 description=description,
@@ -108,7 +115,7 @@ class ToolExecutor:
                 end_time=dt_end,
                 priority=p_enum,
                 status=TaskStatus.pending,
-                remind_before_minutes=remind_before_minutes,
+                remind_before_minutes=rec_offset,
                 is_voice_created=self.is_voice,
                 tags=[],
                 recurrence_type=rec_type,
@@ -206,7 +213,14 @@ class ToolExecutor:
 
         # Create reminder
         offset = remind_before_minutes if remind_before_minutes is not None else self.user.default_reminder_offset_minutes
-        if offset and offset > 0:
+        user_tz = ZoneInfo(tz_name)
+        now_user = datetime.now(user_tz)
+        if offset is not None and offset > 0:
+            remind_time = dt_start - timedelta(minutes=offset)
+            if remind_time <= now_user and dt_start > now_user:
+                offset = 0
+
+        if offset is not None and offset >= 0:
             ReminderService.sync_task_reminder(self.db, task, offset_minutes=offset)
 
         self.db.commit()
@@ -334,7 +348,9 @@ class ToolExecutor:
                 pass
 
         if remind_before_minutes is not None or start_time is not None:
-            offset = remind_before_minutes if remind_before_minutes is not None else 30
+            offset = remind_before_minutes if remind_before_minutes is not None else (
+                task.reminders[0].offset_minutes if task.reminders else self.user.default_reminder_offset_minutes
+            )
             ReminderService.sync_task_reminder(self.db, task, offset_minutes=offset)
 
         self.db.commit()
@@ -532,7 +548,7 @@ def create_task(
         end_time: ISO-8601 formatted end time (e.g. 2026-11-21T16:00:00+02:00).
         description: Optional notes or description.
         priority: One of 'urgent', 'high', 'medium', 'low'.
-        remind_before_minutes: Minutes before start_time to trigger reminder (e.g. 30).
+        remind_before_minutes: Minutes before start_time to trigger reminder (e.g. 0 to remind exactly at start_time, or 15/30). IMPORTANT: Set to 0 when reminding at or after short durations (e.g., 'remind me in 1 minute', 'فكرني بعد دقيقة').
         force: If True, schedules despite conflicts.
         recurrence_type: Recurrence mode ('none', 'daily', 'weekly', 'monthly').
         recurrence_days: For weekly recurring tasks, list of 3-letter lowercase weekdays e.g. ['sun', 'tue'].

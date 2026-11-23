@@ -9,6 +9,9 @@ name: Build Android Release APK
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Android APK
@@ -20,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -36,11 +41,80 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Release APK
-        run: flutter build apk --release --dart-define=API_BASE_URL=https://sia-ai-assistant.onrender.com/api/v1
+      - name: Configure Android Release Signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ERROR: ANDROID_KEYSTORE_BASE64 secret is not configured in GitHub Secrets! Refusing to build unsigned or debug-signed release APK."
+            exit 1
+          fi
 
-      - name: Upload Release APK
+          mkdir -p android/app
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/sia-release.jks
+
+          if ! test -s android/app/sia-release.jks; then
+            echo "ERROR: Decoded keystore android/app/sia-release.jks is missing or empty! Check ANDROID_KEYSTORE_BASE64 secret."
+            exit 1
+          fi
+
+          printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=sia-release.jks\n" \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_KEY_ALIAS" > android/key.properties
+
+      - name: Build Release APK
+        run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=https://sia-ai-assistant.onrender.com/api/v1
+
+      - name: Prepare Release Artifacts & version.json
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Sia.apk
+          python3 -c "
+          import json, re, subprocess, datetime
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              pub = f.read()
+          v_match = re.search(r'^version:\s*([^\+\s]+)', pub, re.MULTILINE)
+          v_name = v_match.group(1) if v_match else '1.0.0'
+          try:
+              notes = subprocess.check_output(['git', 'log', '-1', '--pretty=%s'], text=True, encoding='utf-8').strip()
+          except Exception:
+              notes = 'تحسينات في الأداء وإصلاحات جديدة لتطبيق Sia.'
+          if not notes:
+              notes = 'تحسينات في الأداء وإصلاحات جديدة لتطبيق Sia.'
+          now_iso = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          manifest = {
+              'version_name': v_name,
+              'build_number': int('${{ github.run_number }}'),
+              'download_url': 'https://github.com/Ahmed-iCode/sia-ai-assistant/releases/latest/download/Sia.apk',
+              'release_notes': notes,
+              'published_at': now_iso
+          }
+          with open('build/app/outputs/flutter-apk/version.json', 'w', encoding='utf-8') as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          "
+
+      - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sia-release-apk
-          path: app/build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            app/build/app/outputs/flutter-apk/Sia.apk
+            app/build/app/outputs/flutter-apk/version.json
+
+      - name: Publish Latest GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create latest \
+            build/app/outputs/flutter-apk/Sia.apk \
+            build/app/outputs/flutter-apk/version.json \
+            --title "Sia Release (Build ${{ github.run_number }})" \
+            --notes "Automatic release for Sia Android APK." \
+            --target main || \
+          gh release upload latest \
+            build/app/outputs/flutter-apk/Sia.apk \
+            build/app/outputs/flutter-apk/version.json \
+            --clobber

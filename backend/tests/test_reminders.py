@@ -45,6 +45,30 @@ def test_task_reminder_automatic_sync(client, auth_user, db_session):
     assert updated_data["reminders"][0]["offsetMinutes"] == 15
 
 
+def test_task_reminder_zero_offset(client, auth_user, db_session):
+    now = datetime.now(timezone.utc)
+    start_time = now + timedelta(minutes=1)
+    end_time = start_time + timedelta(minutes=30)
+
+    # Create task with 0m reminder (remind at event start time)
+    res = client.post(
+        "/api/v1/tasks",
+        json={
+            "title": "Drink Water in 1 Minute",
+            "startTime": start_time.isoformat(),
+            "endTime": end_time.isoformat(),
+            "remindBeforeMinutes": 0,
+        },
+        headers=auth_user["headers"],
+    )
+    assert res.status_code == status.HTTP_201_CREATED
+    data = res.json()
+    assert len(data["reminders"]) == 1
+    assert data["reminders"][0]["offsetMinutes"] == 0
+    # remind_at should match start_time
+    assert data["reminders"][0]["remindAt"] is not None
+
+
 def test_get_upcoming_reminders(client, auth_user):
     now = datetime.now(timezone.utc)
     start_time = now + timedelta(hours=2)

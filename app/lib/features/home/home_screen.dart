@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../core/utils/responsive_layout.dart';
+import '../../core/widgets/app_update_dialog.dart';
 import '../tasks/tasks_view.dart';
 import '../ai_assistant/ai_assistant_view.dart';
 import '../settings/settings_screen.dart';
@@ -28,9 +30,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(notificationServiceProvider).requestPermissions();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ref.read(notificationServiceProvider).requestPermissions();
+      _checkForSilentUpdate();
     });
+  }
+
+  Future<void> _checkForSilentUpdate() async {
+    try {
+      final updateService = ref.read(appUpdateServiceProvider);
+      final updateInfo = await updateService.checkForUpdate(isManual: false);
+      if (updateInfo != null && mounted) {
+        await AppUpdateDialog.show(context, updateInfo);
+
+        final alreadyNotified =
+            await updateService.wasUpdateNotified(updateInfo.buildNumber);
+        if (!alreadyNotified) {
+          final isArabic = ref.read(localeProvider).languageCode == 'ar';
+          await ref.read(notificationServiceProvider).showUpdateAvailableNotification(
+                updateInfo,
+                isArabic: isArabic,
+              );
+          await updateService.markUpdateNotified(updateInfo.buildNumber);
+        }
+      }
+    } catch (e) {
+      debugPrint('[HomeScreen] Silent update check skipped: $e');
+    }
   }
 
   @override

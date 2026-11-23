@@ -31,11 +31,38 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        create("release") {
+            val keyPropertiesFile = rootProject.file("key.properties")
+            if (keyPropertiesFile.exists()) {
+                val keyProperties = java.util.Properties()
+                java.io.FileInputStream(keyPropertiesFile).use { keyProperties.load(it) }
+
+                val storeFilePath = keyProperties.getProperty("storeFile")
+                if (!storeFilePath.isNullOrBlank()) {
+                    val candidateApp = file(storeFilePath)
+                    val candidateRoot = rootProject.file(storeFilePath)
+                    storeFile = when {
+                        candidateApp.exists() -> candidateApp
+                        candidateRoot.exists() -> candidateRoot
+                        else -> candidateApp
+                    }
+                }
+                storePassword = keyProperties.getProperty("storePassword")
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            val keyPropertiesFile = rootProject.file("key.properties")
+            signingConfig = if (keyPropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

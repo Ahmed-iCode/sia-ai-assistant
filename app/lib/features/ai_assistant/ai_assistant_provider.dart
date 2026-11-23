@@ -135,7 +135,13 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
         isThinking: false,
       );
 
-      // Refresh tasks and notifications
+      // Immediately schedule notification if a task was created/modified
+      if (responseMsg.actionCard?.task != null) {
+        await NotificationService.instance
+            .scheduleTaskReminder(responseMsg.actionCard!.task!);
+      }
+
+      // Refresh tasks and notifications immediately
       await ref.read(tasksProvider.notifier).refresh();
       final currentTasks = ref.read(tasksProvider).value ?? [];
       await ref.read(notificationServiceProvider).scheduleTaskReminders(currentTasks);
@@ -218,7 +224,13 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
         isThinking: false,
       );
 
-      if (respData['tasksMutated'] == true) {
+      // Immediately schedule notification if a task was created/modified
+      if (assistantMsg.actionCard?.task != null) {
+        await NotificationService.instance
+            .scheduleTaskReminder(assistantMsg.actionCard!.task!);
+      }
+
+      if (respData['tasksMutated'] == true || assistantMsg.actionCard != null) {
         await ref.read(tasksProvider.notifier).refresh();
         final currentTasks = ref.read(tasksProvider).value ?? [];
         await ref.read(notificationServiceProvider).scheduleTaskReminders(currentTasks);
@@ -415,7 +427,10 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
     if (index == -1) return;
 
     final repo = ref.read(restTaskRepositoryProvider);
-    await repo.createBatchTasks(selectedDrafts);
+    final createdTasks = await repo.createBatchTasks(selectedDrafts);
+    for (final task in createdTasks) {
+      await NotificationService.instance.scheduleTaskReminder(task);
+    }
 
     final card = list[index].actionCard;
     if (card != null) {

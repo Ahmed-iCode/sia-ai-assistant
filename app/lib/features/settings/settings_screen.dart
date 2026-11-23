@@ -4,14 +4,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../core/widgets/app_update_dialog.dart';
 import '../auth/auth_provider.dart';
 import '../auth/login_screen.dart';
 import '../tasks/tasks_provider.dart';
 import 'settings_provider.dart';
 import 'widgets/settings_section.dart';
+
+final pendingNotificationsCountProvider =
+    FutureProvider.autoDispose<int>((ref) async {
+  return await ref.watch(notificationServiceProvider).getPendingNotificationCount();
+});
+
+final appVersionDisplayProvider =
+    FutureProvider.autoDispose<String>((ref) async {
+  return await ref.watch(appUpdateServiceProvider).getAppVersionDisplay();
+});
+
+final updateCheckLoadingProvider =
+    StateProvider.autoDispose<bool>((ref) => false);
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -368,6 +383,7 @@ class SettingsScreen extends ConsumerWidget {
                                 final success = await ref
                                     .read(notificationServiceProvider)
                                     .scheduleDelayed10sTestNotification();
+                                ref.invalidate(pendingNotificationsCountProvider);
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
@@ -390,12 +406,167 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      // Scheduled Alarms Count on Device
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final countAsync =
+                              ref.watch(pendingNotificationsCountProvider);
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? AppColors.darkBackground
+                                  : AppColors.lightBackground,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  LucideIcons.alarmClock,
+                                  size: 16,
+                                  color: AppColors.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: countAsync.when(
+                                    data: (count) => Text(
+                                      l10n.isArabic
+                                          ? 'الإشعارات المجدولة حالياً على الجهاز: $count'
+                                          : 'Scheduled Alarms on Device: $count',
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    loading: () => Text(
+                                      l10n.isArabic
+                                          ? 'جاري فحص الإشعارات...'
+                                          : 'Checking alarms...',
+                                      style: theme.textTheme.labelMedium,
+                                    ),
+                                    error: (err, stack) => Text(
+                                      l10n.isArabic
+                                          ? 'تعذر قراءة الإشعارات المجدولة'
+                                          : 'Unavailable',
+                                      style: theme.textTheme.labelMedium,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(LucideIcons.refreshCw, size: 14),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  tooltip: l10n.isArabic ? 'تحديث' : 'Refresh',
+                                  onPressed: () {
+                                    ref.invalidate(
+                                      pendingNotificationsCountProvider,
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
           ],
+          const SizedBox(height: 16),
+
+          // Section: About & Updates
+          SettingsSection(
+            title: l10n.isArabic ? 'حول التطبيق والتحديثات' : 'About & Updates',
+            children: [
+              Consumer(
+                builder: (context, ref, _) {
+                  final versionAsync = ref.watch(appVersionDisplayProvider);
+                  final isChecking = ref.watch(updateCheckLoadingProvider);
+
+                  return ListTile(
+                    leading: const Icon(LucideIcons.info, size: 20, color: AppColors.primary),
+                    title: const Text(
+                      'Sia',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: versionAsync.when(
+                      data: (version) => Text(
+                        '${l10n.isArabic ? 'الإصدار المثبت: ' : 'Installed: '}$version',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                        ),
+                      ),
+                      loading: () => Text(
+                        l10n.isArabic ? 'جاري التحميل...' : 'Loading...',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      error: (err, stack) => const Text('v1.0.0'),
+                    ),
+                    trailing: isChecking
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            icon: const Icon(LucideIcons.refreshCw, size: 14),
+                            label: Text(
+                              l10n.isArabic ? 'فحص التحديثات' : 'Check for Updates',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                            onPressed: () async {
+                              ref.read(updateCheckLoadingProvider.notifier).state = true;
+                              try {
+                                final updateInfo = await ref
+                                    .read(appUpdateServiceProvider)
+                                    .checkForUpdate(isManual: true);
+
+                                if (context.mounted) {
+                                  if (updateInfo != null) {
+                                    await AppUpdateDialog.show(context, updateInfo);
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          l10n.isArabic
+                                              ? '🎉 أنت تستخدم أحدث إصدار من Sia بالفعل!'
+                                              : '🎉 You are already using the latest version of Sia!',
+                                        ),
+                                        duration: const Duration(seconds: 4),
+                                        backgroundColor: AppColors.primary,
+                                      ),
+                                    );
+                                  }
+                                }
+                              } catch (e) {
+                                debugPrint('[SettingsScreen] Update check failed: $e');
+                              } finally {
+                                ref.read(updateCheckLoadingProvider.notifier).state = false;
+                              }
+                            },
+                          ),
+                  );
+                },
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
 
           // Section 3: Account & Session

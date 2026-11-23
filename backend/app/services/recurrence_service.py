@@ -134,7 +134,7 @@ class RecurrenceService:
                 if task_in.remind_before_minutes is not None
                 else user.default_reminder_offset_minutes
             )
-            if offset and offset > 0:
+            if offset is not None and offset >= 0:
                 ReminderService.sync_task_reminder(db=db, task=task, offset_minutes=offset)
 
             if idx == 0:
@@ -272,7 +272,7 @@ class RecurrenceService:
                     if representative.reminders
                     else user.default_reminder_offset_minutes
                 )
-                if offset and offset > 0:
+                if offset is not None and offset >= 0:
                     ReminderService.sync_task_reminder(db=db, task=new_task, offset_minutes=offset)
 
                 existing_starts.add(s_time)

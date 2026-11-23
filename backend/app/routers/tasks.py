@@ -152,7 +152,7 @@ def create_task(
         if task_in.remind_before_minutes is not None
         else current_user.default_reminder_offset_minutes
     )
-    if offset and offset > 0:
+    if offset is not None and offset >= 0:
         ReminderService.sync_task_reminder(db=db, task=task, offset_minutes=offset)
 
     db.commit()
@@ -281,7 +281,7 @@ def create_batch_tasks(
                 if task_in.remind_before_minutes is not None
                 else current_user.default_reminder_offset_minutes
             )
-            if offset and offset > 0:
+            if offset is not None and offset >= 0:
                 ReminderService.sync_task_reminder(db=db, task=task, offset_minutes=offset)
 
             created_tasks.append(task)

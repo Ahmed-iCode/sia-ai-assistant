@@ -27,6 +27,10 @@ def test_system_prompt_builder(auth_user):
     assert "أحمد سمير" in prompt
     assert "Sia" in prompt
     assert "NEVER write `سيا` in Arabic script" in prompt
+    assert "Current Time (Exact):" in prompt
+    assert "Current Timestamp:" in prompt
+    assert "SHORT-NOTICE & IMMEDIATE REMINDERS" in prompt
+    assert "remind_before_minutes=0" in prompt
 
 
 def test_parse_datetime_helper():
@@ -95,6 +99,30 @@ def test_tool_executor_create_task(db_session, auth_user):
     assert created_db is not None
     assert len(created_db.reminders) == 1
     assert created_db.reminders[0].offset_minutes == 15
+
+
+def test_tool_executor_short_notice_reminder_clamping(db_session, auth_user):
+    user = auth_user["user"]
+    executor = ToolExecutor(db=db_session, user=user)
+
+    # Task starting in 2 minutes from now with requested 30m advance reminder
+    # Since 30m before start is in the past, offset must be clamped to 0 (at start time)
+    now = datetime.now(timezone.utc)
+    start_time = now + timedelta(minutes=2)
+    end_time = start_time + timedelta(minutes=30)
+
+    res = executor.create_task(
+        title="Immediate Coffee Break",
+        start_time=start_time.isoformat(),
+        end_time=end_time.isoformat(),
+        remind_before_minutes=30,
+    )
+
+    assert res["status"] == "success"
+    task_db = db_session.query(Task).filter(Task.title == "Immediate Coffee Break").first()
+    assert task_db is not None
+    assert len(task_db.reminders) == 1
+    assert task_db.reminders[0].offset_minutes == 0
 
 
 def test_tool_executor_conflict_alert(db_session, auth_user):

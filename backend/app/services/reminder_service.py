@@ -18,7 +18,8 @@ class ReminderService:
     ) -> Optional[Reminder]:
         """
         Creates or updates a reminder linked to a task based on offset_minutes.
-        If offset_minutes is 0 or None, any existing reminder is removed.
+        If offset_minutes is negative (< 0) or None, any existing reminder is removed.
+        If offset_minutes is 0, the reminder is scheduled exactly at task.start_time.
         """
         existing_reminder = (
             db.query(Reminder)
@@ -26,7 +27,7 @@ class ReminderService:
             .first()
         )
 
-        if offset_minutes is None or offset_minutes <= 0:
+        if offset_minutes is None or offset_minutes < 0:
             if existing_reminder:
                 db.delete(existing_reminder)
                 db.flush()
