@@ -1,11 +1,11 @@
 {
-    "name": "Sia (سيا) - AI Task Assistant",
+    "name": "Sia",
     "short_name": "Sia",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0B0F17",
     "theme_color": "#6366F1",
-    "description": "Sia (سيا) - Intelligent AI Voice & Schedule Assistant",
+    "description": "Sia - Intelligent AI Voice & Schedule Assistant",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -12,8 +12,8 @@ import 'rest_task_repository.dart';
 
 class NotificationService {
   static const String channelId = 'sia_task_reminders';
-  static const String channelName = 'تذكيرات المهام | Task Reminders';
-  static const String channelDescription = 'تنبيهات وتذكيرات المهام المجدولة قبل موعدها';
+  static const String channelName = 'تذكيرات Sia | Sia Task Reminders';
+  static const String channelDescription = 'تنبيهات وتذكيرات Sia للمهام المجدولة قبل موعدها';
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
@@ -276,7 +276,7 @@ class NotificationService {
   /// Diagnostics: Fire immediate test notification
   Future<bool> showImmediateTestNotification({
     String title = '🔔 إشعار تجريبي فوري | Sia Test',
-    String body = 'نظام التنبيهات المحلي في تطبيق سيا يعمل بنجاح!',
+    String body = 'نظام التنبيهات المحلي في تطبيق Sia يعمل بنجاح!',
   }) async {
     if (_isTestOrWeb) return false;
     await initialize();

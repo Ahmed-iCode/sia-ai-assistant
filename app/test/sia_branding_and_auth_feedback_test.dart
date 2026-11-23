@@ -60,9 +60,11 @@ void main() {
   group('Sia Branding Tests', () {
     test('AppStrings contains Sia branding in Arabic and English', () {
       expect(AppStrings.en.appTitle, equals('Sia'));
-      expect(AppStrings.ar.appTitle, equals('سيا'));
+      expect(AppStrings.ar.appTitle, equals('Sia'));
       expect(AppStrings.en.loginSubtitle, contains('Sia'));
-      expect(AppStrings.ar.loginSubtitle, contains('سيا'));
+      expect(AppStrings.ar.loginSubtitle, contains('Sia'));
+      expect(AppStrings.ar.loginSubtitle, isNot(contains('سيا')));
+      expect(AppStrings.ar.appTitle, isNot(contains('سيا')));
     });
 
     test('AiAssistantProvider initial welcome message introduces Sia', () {
@@ -75,7 +77,8 @@ void main() {
 
       final state = container.read(aiAssistantProvider);
       expect(state.messages, isNotEmpty);
-      expect(state.messages.first.text, contains('سيا (Sia)'));
+      expect(state.messages.first.text, contains('Sia'));
+      expect(state.messages.first.text, isNot(contains('سيا')));
     });
   });
 

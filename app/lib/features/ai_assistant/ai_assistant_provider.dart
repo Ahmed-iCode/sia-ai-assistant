@@ -54,7 +54,7 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
       id: _uuid.v4(),
       sender: MessageSender.assistant,
       text: isArabic
-          ? 'أهلاً بك$greetingNameAr! أنا سيا (Sia)، مساعدك الذكي لتنظيم الوقت والمهام. يمكنك سؤالي: "عندي تاسكات إيه النهاردة؟" أو "أنا فاضي إمتى؟" أو تسجيل طلبك صوتياً.'
+          ? 'أهلاً بك$greetingNameAr! أنا Sia، مساعدك الذكي لتنظيم الوقت والمهام. يمكنك سؤالي: "عندي تاسكات إيه النهاردة؟" أو "أنا فاضي إمتى؟" أو تسجيل طلبك صوتياً.'
           : 'Welcome$greetingNameEn! I am Sia, your intelligent AI Task & Schedule Assistant. Ask me "What tasks do I have today?", "When am I free?", or use your voice to schedule.',
       timestamp: DateTime.now(),
     );
@@ -106,8 +106,8 @@ class AiAssistantNotifier extends Notifier<AiAssistantState> {
     final authState = ref.read(authProvider).value;
     if (authState == null || !authState.isAuthenticated) {
       final errText = isArabic
-          ? 'يُرجى تسجيل الدخول أولاً لتتمكن من التحدث مع المساعد الذكي.'
-          : 'Please sign in first to interact with the AI assistant.';
+          ? 'يُرجى تسجيل الدخول أولاً لتتمكن من التحدث مع Sia.'
+          : 'Please sign in first to interact with Sia.';
       final errMessage = ChatMessageModel(
         id: _uuid.v4(),
         sender: MessageSender.assistant,

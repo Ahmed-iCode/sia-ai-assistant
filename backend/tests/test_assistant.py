@@ -26,7 +26,7 @@ def test_system_prompt_builder(auth_user):
     assert "Ahmed Samir" in prompt
     assert "أحمد سمير" in prompt
     assert "Sia" in prompt
-    assert "سيا" in prompt
+    assert "NEVER write `سيا` in Arabic script" in prompt
 
 
 def test_parse_datetime_helper():

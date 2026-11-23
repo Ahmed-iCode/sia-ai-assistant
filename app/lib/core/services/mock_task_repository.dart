@@ -309,7 +309,7 @@ class MockTaskRepository implements TaskRepository {
       final proposedTask = TaskModel(
         id: _uuid.v4(),
         title: isArabic ? 'اجتماع طارئ مع الفريق' : 'Team Sync Meeting',
-        description: isArabic ? 'تم طلب حجز موعد عبر المساعد الذكي' : 'Requested via AI Assistant',
+        description: isArabic ? 'تم طلب حجز موعد عبر Sia' : 'Requested via Sia',
         startTime: proposedStart,
         endTime: proposedEnd,
         priority: TaskPriority.high,
@@ -398,8 +398,8 @@ class MockTaskRepository implements TaskRepository {
             ? (lower.contains('كود') ? 'مراجعة الكود البرمجي مع الفريق' : 'مراجعة المهام والأولويات')
             : (lower.contains('code') ? 'Team Code Review Session' : 'Task & Priorities Review'),
         description: isArabic
-            ? 'تمت إضافة المهمة تلقائياً بواسطة المساعد الذكي الصوتي مع تذكير مسبق 30 دقيقة.'
-            : 'Task added automatically by AI Voice Assistant with a 30m prior reminder.',
+            ? 'تمت إضافة المهمة تلقائياً بواسطة Sia مع تذكير مسبق 30 دقيقة.'
+            : 'Task added automatically by Sia with a 30m prior reminder.',
         startTime: start,
         endTime: end,
         priority: TaskPriority.high,

@@ -178,6 +178,7 @@ class _AiAssistantViewState extends ConsumerState<AiAssistantView> {
   }
 
   Widget _buildThinkingIndicator(BuildContext context, ThemeData theme, bool isDark) {
+    final isArabic = AppLocalizations.of(context).locale.languageCode == 'ar';
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -201,7 +202,7 @@ class _AiAssistantViewState extends ConsumerState<AiAssistantView> {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'AI Thinking...',
+                  isArabic ? 'Sia تفكر...' : 'Sia is thinking...',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
                   ),

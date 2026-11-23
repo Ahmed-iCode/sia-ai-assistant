@@ -40,7 +40,7 @@ void main() {
   testWidgets('ChatBubble renders MarkdownBody for assistant messages', (WidgetTester tester) async {
     final assistantMessage = ChatMessageModel(
       id: 'msg-1',
-      text: 'مرحباً بك! أنا **المساعد الذكي للمهام** من تطوير فريق **T4S**.',
+      text: 'مرحباً بك! أنا **Sia** من تطوير فريق **T4S**.',
       sender: MessageSender.assistant,
       timestamp: DateTime.now(),
     );
@@ -50,7 +50,7 @@ void main() {
 
     expect(find.byType(MarkdownBody), findsOneWidget);
     final markdownWidget = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
-    expect(markdownWidget.data, contains('**المساعد الذكي للمهام**'));
+    expect(markdownWidget.data, contains('**Sia**'));
     expect(markdownWidget.data, contains('**T4S**'));
   });
 
