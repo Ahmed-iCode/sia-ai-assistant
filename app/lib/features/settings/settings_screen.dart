@@ -20,6 +20,11 @@ final pendingNotificationsCountProvider =
   return await ref.watch(notificationServiceProvider).getPendingNotificationCount();
 });
 
+final canScheduleExactAlarmsProvider =
+    FutureProvider.autoDispose<bool>((ref) async {
+  return await ref.watch(notificationServiceProvider).canScheduleExactAlarms();
+});
+
 final appVersionDisplayProvider =
     FutureProvider.autoDispose<String>((ref) async {
   return await ref.watch(appUpdateServiceProvider).getAppVersionDisplay();
@@ -322,6 +327,107 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 14),
+
+                      // Exact Alarm Permission Warning Banner (Android 12+ / MIUI)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final canExactAsync =
+                              ref.watch(canScheduleExactAlarmsProvider);
+                          return canExactAsync.when(
+                            data: (canExact) {
+                              if (canExact) return const SizedBox.shrink();
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 14),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.warning
+                                      .withAlpha(isDark ? 40 : 25),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: AppColors.warning
+                                        .withAlpha(isDark ? 120 : 100),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          LucideIcons.alertTriangle,
+                                          size: 18,
+                                          color: AppColors.warning,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            l10n.isArabic
+                                                ? 'تنبيه: صلاحية المنبه الدقيق غير مفعّلة'
+                                                : 'Exact Alarm Permission Required',
+                                            style: theme.textTheme.titleSmall
+                                                ?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                              color: AppColors.warning,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      l10n.isArabic
+                                          ? 'على أجهزة Android الحديثة وMIUI، يحتاج Sia لتفعيل صلاحية المنبه لضمان رنين التنبيهات في موعدها الدقيق في الخلفية.'
+                                          : 'On Android 12+ and MIUI, Sia requires exact alarm permission to deliver reminders precisely on time.',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(height: 1.4),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.warning,
+                                          foregroundColor: Colors.black,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 8),
+                                        ),
+                                        icon: const Icon(LucideIcons.settings,
+                                            size: 16),
+                                        label: Text(
+                                          l10n.isArabic
+                                              ? 'تفعيل صلاحية المنبه الدقيق'
+                                              : 'Enable Exact Alarm Permission',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12),
+                                        ),
+                                        onPressed: () async {
+                                          await ref
+                                              .read(
+                                                  notificationServiceProvider)
+                                              .requestExactAlarmsPermission();
+                                          ref.invalidate(
+                                              canScheduleExactAlarmsProvider);
+                                          ref.invalidate(
+                                              pendingNotificationsCountProvider);
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            loading: () => const SizedBox.shrink(),
+                            error: (err, stack) => const SizedBox.shrink(),
+                          );
+                        },
+                      ),
+
                       Row(
                         children: [
                           // Button 1: Test Now
@@ -380,24 +486,34 @@ class SettingsScreen extends ConsumerWidget {
                                 ),
                               ),
                               onPressed: () async {
+                                final canExact = await ref
+                                    .read(notificationServiceProvider)
+                                    .canScheduleExactAlarms();
                                 final success = await ref
                                     .read(notificationServiceProvider)
                                     .scheduleDelayed10sTestNotification();
                                 ref.invalidate(pendingNotificationsCountProvider);
+                                ref.invalidate(canScheduleExactAlarmsProvider);
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
                                         success
-                                            ? (l10n.isArabic
-                                                ? '⏰ تم جدولة التنبيه بعد 10 ثواني! اقفل الشاشة أو صغّر التطبيق للتأكد من رنينه.'
-                                                : '⏰ Alarm scheduled for 10 seconds! Lock your screen or minimize the app to verify.')
+                                            ? (canExact
+                                                ? (l10n.isArabic
+                                                    ? '⏰ تم جدولة التنبيه الدقيق بعد 10 ثواني! اقفل الشاشة للتأكد من رنينه.'
+                                                    : '⏰ Exact alarm scheduled for 10 seconds! Lock your screen to verify.')
+                                                : (l10n.isArabic
+                                                    ? '⏰ تم جدولة التنبيه (بالوضع التقريبي) بعد 10 ثواني! قم بتفعيل صلاحية المنبه الدقيق لدقة 100%.'
+                                                    : '⏰ Alarm scheduled (inexact mode) for 10 seconds! Grant exact alarm permission for 100% accuracy.'))
                                             : (l10n.isArabic
-                                                ? 'تعذر جدولة التنبيه، يُرجى التأكد من صلاحيات المنبه الدقيق.'
-                                                : 'Could not schedule alarm. Please grant exact alarm permission.'),
+                                                ? 'تعذر جدولة التنبيه، يُرجى التأكد من صلاحيات المنبه والإشعارات.'
+                                                : 'Could not schedule alarm. Please check alarm and notification permissions.'),
                                       ),
                                       duration: const Duration(seconds: 6),
-                                      backgroundColor: AppColors.primary,
+                                      backgroundColor: success
+                                          ? AppColors.primary
+                                          : AppColors.error,
                                     ),
                                   );
                                 }
@@ -469,6 +585,9 @@ class SettingsScreen extends ConsumerWidget {
                                   onPressed: () {
                                     ref.invalidate(
                                       pendingNotificationsCountProvider,
+                                    );
+                                    ref.invalidate(
+                                      canScheduleExactAlarmsProvider,
                                     );
                                   },
                                 ),

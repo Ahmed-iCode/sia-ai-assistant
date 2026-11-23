@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
@@ -24,13 +23,20 @@ class NotificationService {
   static const String updateChannelDescription = 'إشعارات التحديثات والإصدارات الجديدة لتطبيق Sia';
   static const int updateNotificationId = 999001;
 
-  final FlutterLocalNotificationsPlugin _notificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin;
   bool _isInitialized = false;
   Timer? _webReminderPoller;
+  bool allowInTests;
+
+  NotificationService({
+    FlutterLocalNotificationsPlugin? notificationsPlugin,
+    this.allowInTests = false,
+  }) : _notificationsPlugin =
+            notificationsPlugin ?? FlutterLocalNotificationsPlugin();
 
   bool get _isTestOrWeb {
     if (kIsWeb) return true;
+    if (allowInTests) return false;
     try {
       if (Platform.environment.containsKey('FLUTTER_TEST')) return true;
     } catch (_) {}
@@ -138,12 +144,57 @@ class NotificationService {
           enableVibration: true,
         );
         await androidPlatform.createNotificationChannel(updateChannel);
+
+        // Check and request exact alarms permission if not yet permitted on Android 12+
+        try {
+          final canExact =
+              await androidPlatform.canScheduleExactNotifications() ?? false;
+          if (!canExact) {
+            await androidPlatform.requestExactAlarmsPermission();
+          }
+        } catch (e) {
+          debugPrint('Exact alarms init check/request: $e');
+        }
       }
 
       _isInitialized = true;
     } catch (e) {
       debugPrint('Error initializing local notifications: $e');
     }
+  }
+
+  /// Checks whether exact alarms permission is granted on Android.
+  /// Returns true on non-Android, web, or test environments.
+  Future<bool> canScheduleExactAlarms() async {
+    if (_isTestOrWeb) return true;
+    try {
+      final androidPlatform = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlatform != null) {
+        return await androidPlatform.canScheduleExactNotifications() ?? false;
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Error checking exact alarms permission: $e');
+    }
+    return true;
+  }
+
+  /// Requests exact alarms permission on Android (opens system settings screen).
+  Future<bool> requestExactAlarmsPermission() async {
+    if (_isTestOrWeb) return true;
+    try {
+      final androidPlatform = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlatform != null) {
+        final res = await androidPlatform.requestExactAlarmsPermission();
+        return res ?? false;
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Error requesting exact alarms permission: $e');
+    }
+    return false;
   }
 
   Future<bool> requestPermissions() async {
@@ -251,7 +302,7 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: task.id,
       );
-    } on PlatformException catch (e) {
+    } catch (e) {
       debugPrint(
           'Exact alarm failed ($e), falling back to inexactAllowWhileIdle');
       try {
@@ -269,21 +320,6 @@ class NotificationService {
       } catch (err) {
         debugPrint('Fallback inexact alarm also failed: $err');
       }
-    } catch (e) {
-      debugPrint('General error scheduling reminder: $e');
-      try {
-        await _notificationsPlugin.zonedSchedule(
-          notificationId,
-          title,
-          body,
-          tzReminder,
-          notificationDetails,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
-          payload: task.id,
-        );
-      } catch (_) {}
     }
   }
 
