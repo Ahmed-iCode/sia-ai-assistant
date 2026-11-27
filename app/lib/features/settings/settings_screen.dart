@@ -496,9 +496,6 @@ class SettingsScreen extends ConsumerWidget {
                                 ),
                               ),
                               onPressed: () async {
-                                final canExact = await ref
-                                    .read(notificationServiceProvider)
-                                    .canScheduleExactAlarms();
                                 final result = await ref
                                     .read(notificationServiceProvider)
                                     .scheduleDelayed10sTestNotification();
@@ -507,7 +504,11 @@ class SettingsScreen extends ConsumerWidget {
                                 if (context.mounted) {
                                   String message;
                                   if (result.success) {
-                                    if (result.isExact || (canExact && !result.isInexact)) {
+                                    if (result.isAlarmClock) {
+                                      message = l10n.isArabic
+                                          ? '⏰ تم جدولة منبه النظام (أولوية قصوى) بعد 10 ثواني! أغلق التطبيق أو الشاشة للتأكد من رنينه.'
+                                          : '⏰ High-priority Alarm Clock scheduled for 10 seconds! Close the app or lock your screen to verify.';
+                                    } else if (result.mode == 'exact') {
                                       message = l10n.isArabic
                                           ? '⏰ تم جدولة التنبيه الدقيق بعد 10 ثواني! اقفل الشاشة للتأكد من رنينه.'
                                           : '⏰ Exact alarm scheduled for 10 seconds! Lock your screen to verify.';
@@ -621,6 +622,61 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                           );
                         },
+                      ),
+                      const SizedBox(height: 12),
+                      // One-tap Background & Battery Settings helper (MIUI, Samsung, Oppo)
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(LucideIcons.batteryCharging, size: 16),
+                          label: Text(
+                            l10n.isArabic
+                                ? 'إعدادات التشغيل في الخلفية'
+                                : 'Background & Autostart Settings',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final opened = await ref
+                                .read(notificationServiceProvider)
+                                .openBackgroundBatterySettings();
+                            if (!opened && context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    l10n.isArabic
+                                        ? 'تعذر فتح إعدادات التطبيق، يُرجى فتح إعدادات الجهاز ثم التطبيقات > Sia.'
+                                        : 'Could not open settings automatically. Please open Device Settings > Apps > Sia.',
+                                  ),
+                                  duration: const Duration(seconds: 4),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        l10n.isArabic
+                            ? 'فعّل "التشغيل التلقائي (Autostart)" واختر "بلا قيود للبطارية" لضمان رنين تنبيهات Sia عند إغلاق التطبيق.'
+                            : 'Enable Autostart and No battery restrictions so Sia reminders fire when the app is closed.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                          color: isDark
+                              ? AppColors.darkTextSecondary
+                              : AppColors.lightTextSecondary,
+                        ),
                       ),
                     ],
                   ),

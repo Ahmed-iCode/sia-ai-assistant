@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -14,7 +15,7 @@ import 'rest_task_repository.dart';
 
 class ScheduleResult {
   final bool success;
-  final String mode; // 'exact', 'inexact', 'none', 'test_or_web', 'cancelled', 'past'
+  final String mode; // 'alarmClock', 'exact', 'inexact', 'none', 'test_or_web', 'cancelled', 'past'
   final String? errorMessage;
 
   const ScheduleResult({
@@ -23,7 +24,8 @@ class ScheduleResult {
     this.errorMessage,
   });
 
-  bool get isExact => mode == 'exact';
+  bool get isAlarmClock => mode == 'alarmClock';
+  bool get isExact => mode == 'exact' || mode == 'alarmClock';
   bool get isInexact => mode == 'inexact';
 
   @override
@@ -33,6 +35,9 @@ class ScheduleResult {
 
 class NotificationService {
   static final NotificationService instance = NotificationService();
+
+  static const MethodChannel _systemSettingsChannel =
+      MethodChannel('com.taskassistant.app/system_settings');
 
   static const String channelId = 'sia_task_reminders';
   static const String channelName = 'تذكيرات Sia | Sia Task Reminders';
@@ -283,6 +288,24 @@ class NotificationService {
     return false;
   }
 
+  /// Opens Android's App Info screen (`APPLICATION_DETAILS_SETTINGS`) so users
+  /// on aggressive OEM ROMs (MIUI/HyperOS, Samsung, Oppo) can enable Autostart
+  /// and remove battery restrictions.
+  Future<bool> openBackgroundBatterySettings() async {
+    if (_isTestOrWeb) return false;
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final opened =
+          await _systemSettingsChannel.invokeMethod<bool>('openAppSettings');
+      return opened ?? false;
+    } catch (e) {
+      debugPrint(
+        '[NotificationService] Error opening background battery settings: $e',
+      );
+      return false;
+    }
+  }
+
   Future<bool> requestPermissions() async {
     if (_isTestOrWeb) return false;
     await initialize();
@@ -323,6 +346,72 @@ class NotificationService {
     return false;
   }
 
+  static const NotificationDetails _reminderNotificationDetails =
+      NotificationDetails(
+    android: AndroidNotificationDetails(
+      channelId,
+      channelName,
+      channelDescription: channelDescription,
+      importance: Importance.max,
+      priority: Priority.max,
+      playSound: true,
+      enableVibration: true,
+      icon: '@mipmap/ic_launcher',
+    ),
+    iOS: DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    ),
+  );
+
+  /// Schedules a zoned notification using the highest-priority alarm clock mode
+  /// (`AlarmManager.setAlarmClock()`, exempt from Doze and aggressive OEM task killers),
+  /// automatically falling back through `exactAllowWhileIdle` and `inexactAllowWhileIdle`.
+  Future<ScheduleResult> _scheduleWithFallback({
+    required int id,
+    required String title,
+    required String body,
+    required tz.TZDateTime scheduledDate,
+    String? payload,
+  }) async {
+    const attempts = <(AndroidScheduleMode, String)>[
+      (AndroidScheduleMode.alarmClock, 'alarmClock'),
+      (AndroidScheduleMode.exactAllowWhileIdle, 'exact'),
+      (AndroidScheduleMode.inexactAllowWhileIdle, 'inexact'),
+    ];
+
+    Object? lastError;
+    for (final (scheduleMode, modeLabel) in attempts) {
+      try {
+        await _notificationsPlugin.zonedSchedule(
+          id,
+          title,
+          body,
+          scheduledDate,
+          _reminderNotificationDetails,
+          androidScheduleMode: scheduleMode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload,
+        );
+        return ScheduleResult(success: true, mode: modeLabel);
+      } catch (e) {
+        lastError = e;
+        debugPrint(
+          '[NotificationService] Schedule mode $modeLabel failed ($e), trying fallback',
+        );
+      }
+    }
+
+    debugPrint('[NotificationService] All schedule modes failed: $lastError');
+    return ScheduleResult(
+      success: false,
+      mode: 'none',
+      errorMessage: lastError?.toString(),
+    );
+  }
+
   Future<ScheduleResult> scheduleTaskReminder(TaskModel task) async {
     if (_isTestOrWeb) {
       return const ScheduleResult(success: true, mode: 'test_or_web');
@@ -359,69 +448,18 @@ class NotificationService {
     final notificationId = task.id.hashCode & 0x7FFFFFFF;
     final tzReminder = tz.TZDateTime.from(triggerUtc, _safeLocalLocation);
 
-    const androidDetails = AndroidNotificationDetails(
-      channelId,
-      channelName,
-      channelDescription: channelDescription,
-      importance: Importance.max,
-      priority: Priority.max,
-      playSound: true,
-      enableVibration: true,
-      icon: '@mipmap/ic_launcher',
-    );
-
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      ),
-    );
-
     final title = '⏰ تذكير بمهمة: ${task.title}';
     final body = (reminderMinutes > 0 && !isClamped)
         ? 'تبدأ المهمة خلال $reminderMinutes دقيقة'
         : 'موعد بدء المهمة الآن';
 
-    try {
-      await _notificationsPlugin.zonedSchedule(
-        notificationId,
-        title,
-        body,
-        tzReminder,
-        notificationDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        payload: task.id,
-      );
-      return const ScheduleResult(success: true, mode: 'exact');
-    } catch (e) {
-      debugPrint(
-          'Exact alarm failed ($e), falling back to inexactAllowWhileIdle');
-      try {
-        await _notificationsPlugin.zonedSchedule(
-          notificationId,
-          title,
-          body,
-          tzReminder,
-          notificationDetails,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
-          payload: task.id,
-        );
-        return const ScheduleResult(success: true, mode: 'inexact');
-      } catch (err) {
-        debugPrint('Fallback inexact alarm also failed: $err');
-        return ScheduleResult(
-          success: false,
-          mode: 'none',
-          errorMessage: err.toString(),
-        );
-      }
-    }
+    return _scheduleWithFallback(
+      id: notificationId,
+      title: title,
+      body: body,
+      scheduledDate: tzReminder,
+      payload: task.id,
+    );
   }
 
   Future<void> cancelTaskReminder(String taskId) async {
@@ -540,57 +578,13 @@ class NotificationService {
     final triggerUtc = DateTime.now().toUtc().add(const Duration(seconds: 10));
     final tzTrigger = tz.TZDateTime.from(triggerUtc, _safeLocalLocation);
 
-    const androidDetails = AndroidNotificationDetails(
-      channelId,
-      channelName,
-      channelDescription: channelDescription,
-      importance: Importance.max,
-      priority: Priority.max,
-      playSound: true,
-      enableVibration: true,
-      icon: '@mipmap/ic_launcher',
-    );
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: DarwinNotificationDetails(),
-    );
-
     const testId = 999998;
-    try {
-      await _notificationsPlugin.zonedSchedule(
-        testId,
-        title,
-        body,
-        tzTrigger,
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      return const ScheduleResult(success: true, mode: 'exact');
-    } catch (e) {
-      debugPrint('Exact 10s test alarm failed, fallback to inexact: $e');
-      try {
-        await _notificationsPlugin.zonedSchedule(
-          testId,
-          title,
-          body,
-          tzTrigger,
-          details,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
-        );
-        return const ScheduleResult(success: true, mode: 'inexact');
-      } catch (err) {
-        debugPrint('Fallback 10s test alarm failed: $err');
-        return ScheduleResult(
-          success: false,
-          mode: 'none',
-          errorMessage: err.toString(),
-        );
-      }
-    }
+    return _scheduleWithFallback(
+      id: testId,
+      title: title,
+      body: body,
+      scheduledDate: tzTrigger,
+    );
   }
 
   /// Displays a high-priority system notification when a new Sia release is available.

@@ -90,6 +90,8 @@ void main() {
       final result = await service.scheduleDelayed10sTestNotification();
 
       expect(result.success, isTrue);
+      expect(result.mode, 'alarmClock');
+      expect(result.isAlarmClock, isTrue);
       expect(result.isExact, isTrue);
       expect(result.errorMessage, isNull);
 
@@ -123,6 +125,8 @@ void main() {
       final result = await service.scheduleTaskReminder(task);
 
       expect(result.success, isTrue);
+      expect(result.mode, 'alarmClock');
+      expect(result.isAlarmClock, isTrue);
       expect(result.isExact, isTrue);
       expect(result.errorMessage, isNull);
 

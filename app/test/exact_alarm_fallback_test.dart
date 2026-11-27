@@ -12,10 +12,37 @@ void main() {
 
   const MethodChannel channel =
       MethodChannel('dexterous.com/flutter/local_notifications');
+  const MethodChannel settingsChannel =
+      MethodChannel('com.taskassistant.app/system_settings');
 
   group('Exact Alarm Fallback Tests', () {
     final List<MethodCall> methodCalls = [];
+    final List<MethodCall> settingsCalls = [];
+    late Set<String> blockedScheduleModes;
     late NotificationService service;
+
+    TaskModel buildSampleTask() {
+      final nowUtc = DateTime.now().toUtc();
+      return TaskModel(
+        id: 'task-fallback-1',
+        title: 'Standup Meeting',
+        startTime: nowUtc.add(const Duration(minutes: 30)),
+        endTime: nowUtc.add(const Duration(hours: 1)),
+        status: TaskStatus.pending,
+        priority: TaskPriority.high,
+        createdAt: nowUtc,
+        updatedAt: nowUtc,
+        reminders: [
+          ReminderModel(
+            id: 'rem-fallback-1',
+            taskId: 'task-fallback-1',
+            remindAt: nowUtc.add(const Duration(minutes: 15)),
+            offsetMinutes: 15,
+            isTriggered: false,
+          ),
+        ],
+      );
+    }
 
     setUp(() {
       AndroidFlutterLocalNotificationsPlugin.registerWith();
@@ -23,6 +50,8 @@ void main() {
       tz.initializeTimeZones();
 
       methodCalls.clear();
+      settingsCalls.clear();
+      blockedScheduleModes = {'alarmClock', 'exactAllowWhileIdle'};
       service = NotificationService(allowInTests: true);
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -46,17 +75,27 @@ void main() {
                 args['platformSpecifics'] as Map<dynamic, dynamic>?;
             final scheduleMode =
                 platformSpecifics?['scheduleMode'] ?? args['scheduleMode'];
-            if (scheduleMode == 'exactAllowWhileIdle') {
+            if (blockedScheduleModes.contains(scheduleMode)) {
               throw PlatformException(
                 code: 'exact_alarms_not_permitted',
                 message: 'Exact alarms not permitted on this Android version',
               );
             }
-            // Fallback mode succeeds
+            // Allowed mode succeeds
             return null;
           default:
             return null;
         }
+      });
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(settingsChannel,
+              (MethodCall methodCall) async {
+        settingsCalls.add(methodCall);
+        if (methodCall.method == 'openAppSettings') {
+          return true;
+        }
+        return false;
       });
     });
 
@@ -64,6 +103,8 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(settingsChannel, null);
     });
 
     test('canScheduleExactAlarms queries platform correctly', () async {
@@ -80,73 +121,99 @@ void main() {
       );
     });
 
-    test(
-        'scheduleTaskReminder catches exact_alarms_not_permitted and retries with inexactAllowWhileIdle',
+    test('openBackgroundBatterySettings invokes system settings MethodChannel',
         () async {
-      final nowUtc = DateTime.now().toUtc();
-      final task = TaskModel(
-        id: 'task-fallback-1',
-        title: 'Standup Meeting',
-        startTime: nowUtc.add(const Duration(minutes: 30)),
-        endTime: nowUtc.add(const Duration(hours: 1)),
-        status: TaskStatus.pending,
-        priority: TaskPriority.high,
-        createdAt: nowUtc,
-        updatedAt: nowUtc,
-        reminders: [
-          ReminderModel(
-            id: 'rem-fallback-1',
-            taskId: 'task-fallback-1',
-            remindAt: nowUtc.add(const Duration(minutes: 15)),
-            offsetMinutes: 15,
-            isTriggered: false,
-          ),
-        ],
-      );
-
-      final result = await service.scheduleTaskReminder(task);
-      expect(result.success, isTrue);
-      expect(result.isInexact, isTrue);
-
-      final zonedCalls =
-          methodCalls.where((call) => call.method == 'zonedSchedule').toList();
-
-      // First attempt was exactAllowWhileIdle (threw PlatformException)
-      // Second attempt was inexactAllowWhileIdle (succeeded)
-      expect(zonedCalls.length, 2);
-      final firstArgs = zonedCalls[0].arguments as Map;
-      final secondArgs = zonedCalls[1].arguments as Map;
-      final firstMode =
-          (firstArgs['platformSpecifics'] as Map?)?['scheduleMode'] ??
-              firstArgs['scheduleMode'];
-      final secondMode =
-          (secondArgs['platformSpecifics'] as Map?)?['scheduleMode'] ??
-              secondArgs['scheduleMode'];
-      expect(firstMode, 'exactAllowWhileIdle');
-      expect(secondMode, 'inexactAllowWhileIdle');
+      final opened = await service.openBackgroundBatterySettings();
+      expect(opened, isTrue);
+      expect(settingsCalls.length, 1);
+      expect(settingsCalls.first.method, 'openAppSettings');
     });
 
     test(
-        'scheduleDelayed10sTestNotification falls back to inexact and returns true',
+        'scheduleTaskReminder uses alarmClock as primary schedule mode when allowed',
         () async {
-      final result = await service.scheduleDelayed10sTestNotification();
+      blockedScheduleModes = {};
+      final result = await service.scheduleTaskReminder(buildSampleTask());
       expect(result.success, isTrue);
+      expect(result.mode, 'alarmClock');
+      expect(result.isAlarmClock, isTrue);
+      expect(result.isExact, isTrue);
+
+      final zonedCalls =
+          methodCalls.where((call) => call.method == 'zonedSchedule').toList();
+      expect(zonedCalls.length, 1);
+      final args = zonedCalls[0].arguments as Map;
+      final mode =
+          (args['platformSpecifics'] as Map?)?['scheduleMode'] ??
+              args['scheduleMode'];
+      expect(mode, 'alarmClock');
+    });
+
+    test(
+        'scheduleTaskReminder falls back from alarmClock to exactAllowWhileIdle',
+        () async {
+      blockedScheduleModes = {'alarmClock'};
+      final result = await service.scheduleTaskReminder(buildSampleTask());
+      expect(result.success, isTrue);
+      expect(result.mode, 'exact');
+      expect(result.isAlarmClock, isFalse);
+      expect(result.isExact, isTrue);
+
+      final zonedCalls =
+          methodCalls.where((call) => call.method == 'zonedSchedule').toList();
+      expect(zonedCalls.length, 2);
+      final modes = zonedCalls.map((call) {
+        final args = call.arguments as Map;
+        return (args['platformSpecifics'] as Map?)?['scheduleMode'] ??
+            args['scheduleMode'];
+      }).toList();
+      expect(modes, ['alarmClock', 'exactAllowWhileIdle']);
+    });
+
+    test(
+        'scheduleTaskReminder falls back through alarmClock -> exactAllowWhileIdle -> inexactAllowWhileIdle',
+        () async {
+      final result = await service.scheduleTaskReminder(buildSampleTask());
+      expect(result.success, isTrue);
+      expect(result.mode, 'inexact');
       expect(result.isInexact, isTrue);
 
       final zonedCalls =
           methodCalls.where((call) => call.method == 'zonedSchedule').toList();
 
-      expect(zonedCalls.length, 2);
-      final firstArgs = zonedCalls[0].arguments as Map;
-      final secondArgs = zonedCalls[1].arguments as Map;
-      final firstMode =
-          (firstArgs['platformSpecifics'] as Map?)?['scheduleMode'] ??
-              firstArgs['scheduleMode'];
-      final secondMode =
-          (secondArgs['platformSpecifics'] as Map?)?['scheduleMode'] ??
-              secondArgs['scheduleMode'];
-      expect(firstMode, 'exactAllowWhileIdle');
-      expect(secondMode, 'inexactAllowWhileIdle');
+      expect(zonedCalls.length, 3);
+      final modes = zonedCalls.map((call) {
+        final args = call.arguments as Map;
+        return (args['platformSpecifics'] as Map?)?['scheduleMode'] ??
+            args['scheduleMode'];
+      }).toList();
+      expect(
+        modes,
+        ['alarmClock', 'exactAllowWhileIdle', 'inexactAllowWhileIdle'],
+      );
+    });
+
+    test(
+        'scheduleDelayed10sTestNotification falls back through alarmClock -> exactAllowWhileIdle -> inexactAllowWhileIdle',
+        () async {
+      final result = await service.scheduleDelayed10sTestNotification();
+      expect(result.success, isTrue);
+      expect(result.mode, 'inexact');
+      expect(result.isInexact, isTrue);
+
+      final zonedCalls =
+          methodCalls.where((call) => call.method == 'zonedSchedule').toList();
+
+      expect(zonedCalls.length, 3);
+      final modes = zonedCalls.map((call) {
+        final args = call.arguments as Map;
+        return (args['platformSpecifics'] as Map?)?['scheduleMode'] ??
+            args['scheduleMode'];
+      }).toList();
+      expect(
+        modes,
+        ['alarmClock', 'exactAllowWhileIdle', 'inexactAllowWhileIdle'],
+      );
     });
   });
 }
