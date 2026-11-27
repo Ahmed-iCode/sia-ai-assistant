@@ -6,6 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:app/core/models/task_model.dart';
 import 'package:app/core/models/reminder_model.dart';
 import 'package:app/core/services/notification_service.dart';
+import 'package:app/features/settings/settings_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -149,6 +150,22 @@ void main() {
       expect(result.success, isFalse);
       expect(result.mode, 'none');
       expect(result.errorMessage, contains('Fatal AlarmManager security failure'));
+    });
+
+    test('compactNotificationError truncates stack traces to first line / 140 chars',
+        () {
+      expect(compactNotificationError(null), '');
+      expect(compactNotificationError('   \n  '), '');
+      const stackTrace =
+          'PlatformException(error, java.lang.RuntimeException: Missing type parameter., null)\n\tat com.google.gson.internal.\$Gson\$Types.getSuperclassTypeParameter';
+      expect(
+        compactNotificationError(stackTrace),
+        'PlatformException(error, java.lang.RuntimeException: Missing type parameter., null)',
+      );
+      final longError = 'A' * 200;
+      final compacted = compactNotificationError(longError);
+      expect(compacted.length, 140);
+      expect(compacted.endsWith('...'), isTrue);
     });
   });
 }

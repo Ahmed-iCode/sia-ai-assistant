@@ -33,6 +33,16 @@ final appVersionDisplayProvider =
 final updateCheckLoadingProvider =
     StateProvider.autoDispose<bool>((ref) => false);
 
+/// Extracts a compact, single-line summary (max 140 chars) from technical error details.
+String compactNotificationError(String? rawError) {
+  if (rawError == null) return '';
+  final trimmed = rawError.trim();
+  if (trimmed.isEmpty) return '';
+  final firstLine = trimmed.split(RegExp(r'\r?\n')).first.trim();
+  if (firstLine.length <= 140) return firstLine;
+  return '${firstLine.substring(0, 137)}...';
+}
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -507,19 +517,25 @@ class SettingsScreen extends ConsumerWidget {
                                           : '⏰ Alarm scheduled (inexact mode) for 10 seconds! Grant exact alarm permission for 100% accuracy.';
                                     }
                                   } else {
-                                    final err = result.errorMessage;
+                                    final compactErr = compactNotificationError(
+                                      result.errorMessage,
+                                    );
                                     message = l10n.isArabic
-                                        ? (err != null && err.isNotEmpty
-                                            ? 'تعذر جدولة التنبيه ($err)'
+                                        ? (compactErr.isNotEmpty
+                                            ? 'تعذر جدولة التنبيه ($compactErr)'
                                             : 'تعذر جدولة التنبيه، يُرجى التأكد من صلاحيات المنبه والإشعارات.')
-                                        : (err != null && err.isNotEmpty
-                                            ? 'Could not schedule alarm ($err)'
+                                        : (compactErr.isNotEmpty
+                                            ? 'Could not schedule alarm ($compactErr)'
                                             : 'Could not schedule alarm. Please check alarm and notification permissions.');
                                   }
 
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(message),
+                                      content: Text(
+                                        message,
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                       duration: Duration(seconds: result.success ? 6 : 8),
                                       backgroundColor: result.success
                                           ? AppColors.primary
